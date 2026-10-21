@@ -1,8 +1,14 @@
-# rs2 NIC pinned by MAC so the interface is always eth0.
+# rs2 NIC pinned by MAC so the interface is always eth0. Static addressing:
+# no DHCP in the lab, hosts are pinned (see README).
 version: 2
 ethernets:
   eth0:
     match:
       macaddress: "52:54:00:aa:00:22"
     set-name: eth0
-    dhcp4: true
+    addresses: [192.168.100.22/24]
+    routes:
+      - to: default
+        via: 192.168.100.1
+    nameservers:
+      addresses: [192.168.100.1]

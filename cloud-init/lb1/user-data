@@ -14,48 +14,47 @@ users:
     ssh_authorized_keys:
       - "@SSH_PUBKEY@"
 write_files:
-  # Inlined copy of freebsd/pf-dsr.conf (single source of truth for the
-  # lab default mode; scripts/pf-mode.sh swaps /etc/pf.conf later).
-  - path: /etc/pf.conf
-    permissions: '0644'
+  # Root access for the lab (the FreeBSD cloud image has NO sudo): the lab
+  # key is placed directly into /root/.ssh - write_files runs as root.
+  - path: /root/.ssh/authorized_keys
+    permissions: '0600'
     content: |
-      # lb1 DSR ruleset (FreeBSD 14.x legacy pf syntax: no match/rdr-to keywords).
-      #
-      # DSR forwarding: pf only sees the client half of each TCP flow - backends
-      # answer the client directly with src=VIP - hence:
-      #   - keep state (sloppy): the firewall never sees the return half of the flow;
-      #   - sticky-address: the round-robin decision is remembered per source IP.
-      # The table is intentionally NOT `const`: tests/t04-backend-failure.sh removes
-      # and re-adds members at runtime via `pfctl -t webs -T delete/add`.
-      set skip on lo0
-      table <webs> { 192.168.100.21, 192.168.100.22 }
-
-      # DSR: forward untouched (no NAT) to a backend, round-robin per source with
-      # stickiness. pf sees only one half of each TCP flow -> sloppy state tracking
-      # is required.
-      pass in quick on vtnet0 proto tcp to (vtnet0) port 80 \
-          route-to (vtnet0 <webs>) round-robin sticky-address \
-          keep state (sloppy)
-
-      # allow lab traffic (icmp, ssh from mgmt)
-      pass in quick proto icmp
-      pass in quick proto tcp to (vtnet0) port 22
-      pass out quick keep state
+      @SSH_PUBKEY@
 runcmd:
-  - 'sysrc ifconfig_vtnet0="DHCP"'
-  # Keep the VIP across reboots (runtime alias is re-added below too).
+  # Static addressing: no DHCP in the lab, hosts are pinned (see README).
+  - 'sysrc ifconfig_vtnet0="inet 192.168.100.11/24"'
   - 'sysrc ifconfig_vtnet0_alias0="inet 192.168.100.200/32"'
+  - 'sysrc defaultrouter="192.168.100.1"'
   # Raises net.inet.ip.forwarding - needed by the NAT comparison mode.
   - 'sysrc gateway_enable="YES"'
   - 'sysrc sshd_enable="YES"'
   - 'sysrc pf_enable="YES"'
   - 'sysrc pf_rules="/etc/pf.conf"'
-  - 'service netif restart >/dev/null 2>&1 || true'
-  - 'service sshd restart >/dev/null 2>&1 || true'
+  # nuageinit applied only the FIRST write_files entry, so pf.conf is
+  # delivered here as base64 (openssl base64 is in the base system).
+  - 'printf "%s" "IyBsYjEgRFNSIHJ1bGVzZXQgKEZyZWVCU0QgMTQueCBsZWdhY3kgcGYgc3ludGF4OiBubyBtYXRjaC9yZHItdG8ga2V5d29yZHMpLgojCiMgUnVsZXMgYXJlIGRlbGliZXJhdGVseSBTSU5HTEUtTElORTogYSB0cmFpbGluZyBzcGFjZSBhZnRlciBhIGxpbmUKIyBjb250aW51YXRpb24gYmFja3NsYXNoIGJyZWFrcyBwZi5jb25mIHdpdGggYSBiYXJlICJzeW50YXggZXJyb3IiLgojCiMgRFNSIGZvcndhcmRpbmc6IHBmIG9ubHkgc2VlcyB0aGUgY2xpZW50IGhhbGYgb2YgZWFjaCBUQ1AgZmxvdyAtIGJhY2tlbmRzCiMgYW5zd2VyIHRoZSBjbGllbnQgZGlyZWN0bHkgd2l0aCBzcmM9VklQIC0gaGVuY2U6CiMgICAtIGtlZXAgc3RhdGUgKHNsb3BweSk6IHRoZSBmaXJld2FsbCBuZXZlciBzZWVzIHRoZSByZXR1cm4gaGFsZiBvZiB0aGUgZmxvdwojICAgICAoZG9jdW1lbnRlZCBmb3IgZXhhY3RseSB0aGlzIGFzeW1tZXRyaWMgcm91dGluZyBjYXNlKTsKIyAgIC0gc3RpY2t5LWFkZHJlc3M6IHRoZSByb3VuZC1yb2JpbiBkZWNpc2lvbiBpcyByZW1lbWJlcmVkIHBlciBzb3VyY2UgSVAuCiMgVGhlIHRhYmxlIGlzIGludGVudGlvbmFsbHkgTk9UIGBjb25zdGA6IHRlc3RzL3QwNC1iYWNrZW5kLWZhaWx1cmUuc2ggcmVtb3ZlcwojIGFuZCByZS1hZGRzIG1lbWJlcnMgYXQgcnVudGltZSB2aWEgYHBmY3RsIC10IHdlYnMgLVQgZGVsZXRlL2FkZGAuCnNldCBza2lwIG9uIGxvMAp0YWJsZSA8d2Vicz4geyAxOTIuMTY4LjEwMC4yMSwgMTkyLjE2OC4xMDAuMjIgfQoKcGFzcyBpbiBxdWljayBvbiB2dG5ldDAgcHJvdG8gdGNwIHRvIDE5Mi4xNjguMTAwLjIwMCBwb3J0IDgwIHJvdXRlLXRvICh2dG5ldDAgPHdlYnM+KSByb3VuZC1yb2JpbiBzdGlja3ktYWRkcmVzcyBrZWVwIHN0YXRlIChzbG9wcHkpCgojIGxhYiBtYW5hZ2VtZW50IHRyYWZmaWMKcGFzcyBpbiBxdWljayBwcm90byBpY21wCnBhc3MgaW4gcXVpY2sgcHJvdG8gdGNwIHRvIDE5Mi4xNjguMTAwLjExIHBvcnQgMjIKcGFzcyBvdXQgcXVpY2sga2VlcCBzdGF0ZQo=" | openssl base64 -d -A > /etc/pf.conf'
   - 'sysctl net.inet.ip.forwarding=1'
-  # Runtime VIP alias (must come after netif restart, which would flush it).
+  # Runtime addresses (rc.conf entries above persist them across reboots).
+  - 'ifconfig vtnet0 inet 192.168.100.11/24'
   - 'ifconfig vtnet0 alias 192.168.100.200/32'
   # Offloads off so tcpdump on the host bridge shows readable packets.
   - 'ifconfig vtnet0 -tso -lro -rxcsum -txcsum'
+  # pf.ko may not be loaded yet at first-boot runcmd time; rc.d/pf handles it
+  # on subsequent boots via pf_enable="YES".
+  - 'kldload pf || true'
   - 'pfctl -f /etc/pf.conf || true'
   - 'pfctl -e || true'
+  # The FreeBSD cloud image has NO sudo: expose the lab key to root instead,
+  # so tests and pf-mode.sh can run privileged commands via root@lb1.
+  - 'mkdir -p /root/.ssh'
+  - 'cp /home/lab/.ssh/authorized_keys /root/.ssh/authorized_keys || true'
+  - 'chmod 600 /root/.ssh/authorized_keys || true'
+  - 'chmod 700 /root/.ssh || true'
+  - 'ssh-keygen -A >/dev/null 2>&1 || true'
+  - 'printf "\n# lb-dsr-lab\nPermitRootLogin yes\nPubkeyAuthentication yes\n" >> /etc/ssh/sshd_config'
+  - 'sysrc sshd_permit_root_login="YES"'
+  - 'service sshd restart >/dev/null 2>&1 || true'
+  # Diagnostics readable without root (dropped after the lab stabilizes).
+  - 'sleep 2; cp /var/log/auth.log /tmp/auth-copy.txt 2>/dev/null || true'
+  - 'sshd -T > /tmp/sshd-T.txt 2>&1 || true'
+  - 'cp /var/log/messages /tmp/nuage-messages.txt 2>/dev/null || true'

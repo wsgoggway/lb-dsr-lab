@@ -7,43 +7,36 @@ source "$(dirname "$0")/lab-env.sh"
 need_virsh
 ensure_ssh_key
 
-ensure_base_vol() {
+# ensure_vol_from_file <pool-volume-name> <local-file-name-in-$LAB_STATE_IMAGES>
+# Full copy per VM: this libvirt build lacks --backing-format for vol-create-as
+# and defaults pool-volume backing to raw, which silently breaks qcow2 backing
+# chains - so overlays are deliberately avoided.
+ensure_vol_from_file() {
   local name=$1 file="$LAB_STATE_IMAGES/$2"
   if "${VIRSH[@]}" vol-info --pool default "$name" >/dev/null 2>&1; then
     return 0
   fi
-  if [[ -f $file ]]; then
-    local size
-    size=$(stat -Lc%s "$file")
-    echo "Importing base volume $name from $file"
-    "${VIRSH[@]}" vol-create-as default "$name" "$size" --format qcow2 >/dev/null
-    "${VIRSH[@]}" vol-upload --pool default "$name" "$file" >/dev/null
-  else
-    die "base volume '$name' is neither in pool 'default' nor at $file
+  if [[ ! -f $file ]]; then
+    die "volume '$name' is neither in pool 'default' nor at $file
 
 Download the images yourself and place them as:
-  $LAB_STATE_IMAGES/$BASE_VOL_FREEBSD   (FreeBSD-14.5-...-BASIC-CLOUDINIT-ufs.qcow2)
-  $LAB_STATE_IMAGES/$BASE_VOL_DEBIAN    (debian-13-genericcloud-amd64.qcow2)
+  $LAB_STATE_IMAGES/$BASE_VOL_FREEBSD   (freebsd-14.5-cloudinit.qcow2)
+  $LAB_STATE_IMAGES/$BASE_VOL_DEBIAN    (debian-13-genericcloud.qcow2)
 This repo never downloads anything."
   fi
+  local size
+  size=$(stat -Lc%s "$file")
+  echo "Importing volume $name from $file"
+  "${VIRSH[@]}" vol-create-as default "$name" "$size" --format qcow2 >/dev/null
+  "${VIRSH[@]}" vol-upload --pool default "$name" "$file" >/dev/null
 }
 
-ensure_base_vol "$BASE_VOL_FREEBSD"
-ensure_base_vol "$BASE_VOL_DEBIAN"
-
-ensure_overlay() {
-  local vol=$1 base=$2
-  if "${VIRSH[@]}" vol-info --pool default "$vol" >/dev/null 2>&1; then
-    return 0
-  fi
-  echo "Creating overlay volume $vol (backing: $base)"
-  "${VIRSH[@]}" vol-create-as default "$vol" "${OVERLAY_SIZE_GB}G" --format qcow2 \
-    --backing-vol "$base" --backing-format qcow2 >/dev/null
-}
-ensure_overlay disk-client "$BASE_VOL_DEBIAN"
-ensure_overlay disk-lb1 "$BASE_VOL_FREEBSD"
-ensure_overlay disk-rs1 "$BASE_VOL_DEBIAN"
-ensure_overlay disk-rs2 "$BASE_VOL_DEBIAN"
+ensure_vol_from_file "$BASE_VOL_FREEBSD" "$BASE_VOL_FREEBSD"
+ensure_vol_from_file "$BASE_VOL_DEBIAN" "$BASE_VOL_DEBIAN"
+ensure_vol_from_file disk-client "$BASE_VOL_DEBIAN"
+ensure_vol_from_file disk-lb1 "$BASE_VOL_FREEBSD"
+ensure_vol_from_file disk-rs1 "$BASE_VOL_DEBIAN"
+ensure_vol_from_file disk-rs2 "$BASE_VOL_DEBIAN"
 
 echo "== building seed ISOs =="
 bash "$LAB_DIR/scripts/make-seed-iso.sh"
