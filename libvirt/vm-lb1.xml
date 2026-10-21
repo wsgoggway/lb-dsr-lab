@@ -1,0 +1,52 @@
+<!--
+  lb1 - FreeBSD 14.5 BASIC-CLOUDINIT (ufs) load balancer running pure pf DSR.
+  UEFI-only image -> os firmware='efi' (libvirt picks OVMF + NVRAM).
+  NIC virtio -> vtnet0 inside FreeBSD; VIP 192.168.100.200/32 is an alias on
+  vtnet0, configured by cloud-init (see cloud-init/lb1/user-data).
+-->
+<domain type='kvm'>
+  <name>lb1</name>
+  <memory unit='MiB'>2048</memory>
+  <currentMemory unit='MiB'>2048</currentMemory>
+  <vcpu placement='static'>1</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='q35'>hvm</type>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='volume' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source volume='disk-lb1' pool='default'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='volume' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source volume='seed-lb1' pool='default'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <mac address='52:54:00:aa:00:11'/>
+      <source network='net-dsr'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'>
+      <target port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+    <video>
+      <model type='virtio'/>
+    </video>
+  </devices>
+</domain>

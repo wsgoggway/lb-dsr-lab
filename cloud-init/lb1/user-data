@@ -1,0 +1,61 @@
+#cloud-config
+# lb1 - FreeBSD 14.5 pf DSR load balancer.
+#
+# Only users / write_files / runcmd are used so this works with both
+# nuageinit (base system) and the python cloud-init shipped in the
+# BASIC-CLOUDINIT image; every runcmd entry is a shell-safe one-liner.
+# The base image already has growfs_enable="YES" in rc.conf, so the disk
+# grows on first boot without extra config here.
+hostname: lb1
+users:
+  - name: lab
+    shell: /bin/sh
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - "@SSH_PUBKEY@"
+write_files:
+  # Inlined copy of freebsd/pf-dsr.conf (single source of truth for the
+  # lab default mode; scripts/pf-mode.sh swaps /etc/pf.conf later).
+  - path: /etc/pf.conf
+    permissions: '0644'
+    content: |
+      # lb1 DSR ruleset (FreeBSD 14.x legacy pf syntax: no match/rdr-to keywords).
+      #
+      # DSR forwarding: pf only sees the client half of each TCP flow - backends
+      # answer the client directly with src=VIP - hence:
+      #   - keep state (sloppy): the firewall never sees the return half of the flow;
+      #   - sticky-address: the round-robin decision is remembered per source IP.
+      # The table is intentionally NOT `const`: tests/t04-backend-failure.sh removes
+      # and re-adds members at runtime via `pfctl -t webs -T delete/add`.
+      set skip on lo0
+      table <webs> { 192.168.100.21, 192.168.100.22 }
+
+      # DSR: forward untouched (no NAT) to a backend, round-robin per source with
+      # stickiness. pf sees only one half of each TCP flow -> sloppy state tracking
+      # is required.
+      pass in quick on vtnet0 proto tcp to (vtnet0) port 80 \
+          route-to (vtnet0 <webs>) round-robin sticky-address \
+          keep state (sloppy)
+
+      # allow lab traffic (icmp, ssh from mgmt)
+      pass in quick proto icmp
+      pass in quick proto tcp to (vtnet0) port 22
+      pass out quick keep state
+runcmd:
+  - 'sysrc ifconfig_vtnet0="DHCP"'
+  # Keep the VIP across reboots (runtime alias is re-added below too).
+  - 'sysrc ifconfig_vtnet0_alias0="inet 192.168.100.200/32"'
+  # Raises net.inet.ip.forwarding - needed by the NAT comparison mode.
+  - 'sysrc gateway_enable="YES"'
+  - 'sysrc sshd_enable="YES"'
+  - 'sysrc pf_enable="YES"'
+  - 'sysrc pf_rules="/etc/pf.conf"'
+  - 'service netif restart >/dev/null 2>&1 || true'
+  - 'service sshd restart >/dev/null 2>&1 || true'
+  - 'sysctl net.inet.ip.forwarding=1'
+  # Runtime VIP alias (must come after netif restart, which would flush it).
+  - 'ifconfig vtnet0 alias 192.168.100.200/32'
+  # Offloads off so tcpdump on the host bridge shows readable packets.
+  - 'ifconfig vtnet0 -tso -lro -rxcsum -txcsum'
+  - 'pfctl -f /etc/pf.conf || true'
+  - 'pfctl -e || true'

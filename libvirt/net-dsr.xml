@@ -1,0 +1,19 @@
+<!--
+  net-dsr: isolated libvirt network for the DSR lab.
+  Host bridge is virbr-dsr (gateway 192.168.100.1). Static DHCP leases pin
+  every VM to its lab address; the pool range covers transient guests too.
+-->
+<network>
+  <name>net-dsr</name>
+  <forward mode='isolated'/>
+  <bridge name='virbr-dsr' stp='on' delay='0'/>
+  <ip address='192.168.100.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.100.10' end='192.168.100.50'/>
+      <host mac='52:54:00:aa:00:10' name='client' ip='192.168.100.10'/>
+      <host mac='52:54:00:aa:00:11' name='lb1' ip='192.168.100.11'/>
+      <host mac='52:54:00:aa:00:21' name='rs1' ip='192.168.100.21'/>
+      <host mac='52:54:00:aa:00:22' name='rs2' ip='192.168.100.22'/>
+    </dhcp>
+  </ip>
+</network>

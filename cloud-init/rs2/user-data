@@ -1,0 +1,87 @@
+#cloud-config
+# rs2 - Debian 13 nginx realserver for DSR.
+#
+# DSR: the VIP lives on lo (hidden from ARP via sysctl), replies leave with
+# src=VIP straight to the client. Offloads are disabled so tcpdump on the
+# host bridge shows readable packets. big.bin (2 MiB) serves the MTU test.
+hostname: rs2
+manage_etc_hosts: true
+package_update: true
+packages: [nginx, ethtool, curl, conntrack]
+users:
+  - name: lab
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo]
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "@SSH_PUBKEY@"
+write_files:
+  - path: /etc/sysctl.d/70-dsr.conf
+    permissions: '0644'
+    content: |
+      # DSR realserver tuning (source: linux/rs-sysctl.conf).
+      # arp_ignore/arp_announce: hide the VIP on lo from ARP so ONLY lb1 answers
+      # for 192.168.100.200 - otherwise the backends would steal the VIP at L2.
+      # rp_filter=0: the reverse path is asymmetric by design in DSR.
+      net.ipv4.conf.all.arp_ignore = 1
+      net.ipv4.conf.lo.arp_ignore = 1
+      net.ipv4.conf.all.arp_announce = 2
+      net.ipv4.conf.lo.arp_announce = 2
+      net.ipv4.conf.all.rp_filter = 0
+      net.ipv4.conf.default.rp_filter = 0
+      net.ipv4.conf.lo.rp_filter = 0
+      # ICMP redirects would teach the backends to bypass lb1 for lab sources,
+      # which breaks the NAT comparison mode (tests/t06, scripts/pf-mode.sh).
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+  - path: /etc/nginx/sites-available/vip.conf
+    permissions: '0644'
+    content: |
+      # DSR realserver vhost: the site lives on the VIP, which sits on lo.
+      server {
+          listen 192.168.100.200:80;
+          server_name _;
+
+          # Marked by lb tests to see which backend served each request.
+          add_header X-Served-By $hostname always;
+
+          location = /healthz {
+              # default_type instead of add_header: a location-level add_header
+              # would drop the inherited X-Served-By header.
+              default_type text/plain;
+              return 200 "ok $hostname\n";
+          }
+
+          location / {
+              root /srv/www;
+          }
+      }
+  # Re-adds the VIP on lo at every boot (runcmd only covers the first boot).
+  - path: /etc/systemd/system/dsr-vip.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=DSR VIP 192.168.100.200/32 on loopback
+      # The VIP must exist before nginx binds 192.168.100.200:80 at boot.
+      Before=nginx.service
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'ip addr show dev lo | grep -q 192.168.100.200 || ip addr add 192.168.100.200/32 dev lo'
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
+  - path: /srv/www/index.html
+    permissions: '0644'
+    content: |
+      <html><body><h1>rs2</h1><p>Served by rs2</p></body></html>
+runcmd:
+  - ip addr add 192.168.100.200/32 dev lo
+  - systemctl enable dsr-vip.service
+  - sysctl --system
+  - 'IFACE=$(ls /sys/class/net | grep -E "^(ens|enp|eth)" | head -n1); ethtool -K "$IFACE" tso off gso off gro off tx off rx off || true'
+  - ln -sf /etc/nginx/sites-available/vip.conf /etc/nginx/sites-enabled/vip.conf
+  - rm -f /etc/nginx/sites-enabled/default
+  - dd if=/dev/urandom of=/srv/www/big.bin bs=1M count=2
+  # nginx -t binds-checks listen 192.168.100.200, so the VIP must exist first.
+  - nginx -t && systemctl restart nginx

@@ -1,0 +1,51 @@
+<!--
+  rs2 - Debian 13 nginx realserver.
+  Disk: qcow2 overlay volume disk-rs2 (base: debian-13-genericcloud.qcow2).
+  VIP 192.168.100.200/32 lives on lo (set by cloud-init), hidden from ARP.
+-->
+<domain type='kvm'>
+  <name>rs2</name>
+  <memory unit='MiB'>768</memory>
+  <currentMemory unit='MiB'>768</currentMemory>
+  <vcpu placement='static'>1</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='q35'>hvm</type>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='volume' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source volume='disk-rs2' pool='default'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='volume' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source volume='seed-rs2' pool='default'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <mac address='52:54:00:aa:00:22'/>
+      <source network='net-dsr'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'>
+      <target port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+    <video>
+      <model type='virtio'/>
+    </video>
+  </devices>
+</domain>

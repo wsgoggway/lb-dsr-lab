@@ -1,0 +1,16 @@
+# lb1 rc.conf settings (informational reference only).
+#
+# These lines are applied at first boot by cloud-init (see cloud-init/lb1/
+# user-data, runcmd uses `sysrc`). This file is NOT sourced automatically -
+# it documents what the running system ends up with.
+#
+# ifconfig_vtnet0_alias0 keeps the VIP after reboots; gateway_enable raises
+# net.inet.ip.forwarding so the NAT comparison mode can route replies
+# (route-to itself does not need it, but it costs nothing in DSR mode).
+ifconfig_vtnet0="DHCP"
+ifconfig_vtnet0_alias0="inet 192.168.100.200/32"
+gateway_enable="YES"
+sshd_enable="YES"
+pf_enable="YES"
+pf_rules="/etc/pf.conf"
+# growfs_enable="YES"  # already set by the base cloud image

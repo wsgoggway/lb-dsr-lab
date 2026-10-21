@@ -1,0 +1,8 @@
+# rs2 NIC pinned by MAC so the interface is always eth0.
+version: 2
+ethernets:
+  eth0:
+    match:
+      macaddress: "52:54:00:aa:00:22"
+    set-name: eth0
+    dhcp4: true

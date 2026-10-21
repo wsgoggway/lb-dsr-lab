@@ -1,0 +1,5 @@
+# lb1 NIC: virtio -> vtnet0 inside FreeBSD. DHCP from net-dsr.
+version: 2
+ethernets:
+  vtnet0:
+    dhcp4: true

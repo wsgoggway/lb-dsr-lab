@@ -1,0 +1,17 @@
+#cloud-config
+# client - Debian 13 test client: curls the VIP and runs arping tests.
+# Offloads off for readable host-side packet dumps.
+hostname: client
+manage_etc_hosts: true
+package_update: true
+packages: [curl, ethtool, arping, apache2-utils]
+users:
+  - name: lab
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo]
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "@SSH_PUBKEY@"
+runcmd:
+  - 'IFACE=$(ls /sys/class/net | grep -E "^(ens|enp|eth)" | head -n1); ethtool -K "$IFACE" tso off gso off gro off tx off rx off || true'
