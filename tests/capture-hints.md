@@ -10,18 +10,18 @@ need sudo (`sudo pacman -S --needed tcpdump wireshark-cli`).
   `virsh -c qemu:///system domiflist lb1` prints the vnetX for each VM, then
   `sudo tcpdump -ni vnetX`
 
-## Inside lb1 (ssh, lab user has passwordless sudo)
+## Inside lb1 (ssh as root@lb1 - the FreeBSD image has no sudo)
 
 - Forward/return path around pf:
-  `sudo tcpdump -ni vtnet0 'tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'`
-- pf decisions: `sudo ifconfig pflog0 up && sudo tcpdump -ni pflog0`
+  `tcpdump -ni vtnet0 'tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'`
+- pf decisions: `ifconfig pflog0 up && tcpdump -ni pflog0`
   (add a `log` action to rules first if nothing shows up)
 
 ## On a realserver (rs1/rs2)
 
-- Return path check: `sudo tcpdump -ni eth0 host 192.168.100.10`
+- Return path check: `tcpdump -ni eth0 host 192.168.100.10`
   (client connections arrive here directly in DSR mode)
-- conntrack (only meaningful in NAT mode): `sudo conntrack -E`
+- conntrack (only meaningful in NAT mode): `conntrack -E`
 - ARP guard: `ip addr show lo` - the VIP /32 must be on lo, never on eth0
 
 ## What SYNs / SYN-ACKs prove where

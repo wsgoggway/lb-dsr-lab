@@ -19,7 +19,7 @@ VM-клиент нагружает VIP. Всё работает в одной и
 ## Топология
 
 Изолированная сеть libvirt `net-dsr` (мост `virbr-dsr`), 192.168.100.0/24,
-хост — 192.168.100.1, DHCP-пул 192.168.100.10–192.168.100.50.
+хост — 192.168.100.1. Адреса гостей СТАТИЧЕСКИЕ (cloud-init network-config), DHCP отключён — детерминированность лабы.
 VIP = 192.168.100.200/32.
 
 | VM     | IP              | MAC               | RAM      | vCPU | ОС | Роль |
@@ -35,7 +35,7 @@ raw-тома `seed-*` (volid `cidata`).
 
 ```mermaid
 flowchart LR
-    C["client<br/>192.168.100.10"] --- BR["virbr-dsr<br/>net-dsr (isolated)"]
+    C["client<br/>192.168.100.10"] --- BR["virbr-dsr<br/>net-dsr (NAT-forward)"]
     L["lb1 - FreeBSD pf<br/>192.168.100.11 + VIP .200"] --- BR
     R1["rs1 - nginx<br/>192.168.100.21"] --- BR
     R2["rs2 - nginx<br/>192.168.100.22"] --- BR
