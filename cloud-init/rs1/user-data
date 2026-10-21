@@ -38,9 +38,10 @@ write_files:
   - path: /etc/nginx/sites-available/vip.conf
     permissions: '0644'
     content: |
-      # DSR realserver vhost: the site lives on the VIP, which sits on lo.
+      # DSR realserver vhost. `listen 80` (wildcard) serves BOTH balancing
+      # modes: DSR arrives with dst=VIP (on lo), NAT rdr arrives with dst=RIP.
       server {
-          listen 192.168.100.200:80;
+          listen 80;
           server_name _;
 
           # Marked by lb tests to see which backend served each request.
