@@ -29,8 +29,8 @@ client_served_by() {
 ssh_to lb1 true || test_fail "cannot ssh to lb1"
 
 FILTER='tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
-# Start tcpdump in the background on lb1 (lab user has passwordless sudo).
-ssh_to lb1 "sudo sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
+# Start tcpdump in the background on lb1 (runs as root: FreeBSD image has no sudo).
+ssh_root_lb1 "sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
 sleep 2
 
 HOST_HITS=()
@@ -38,7 +38,7 @@ for _ in $(seq 1 25); do HOST_HITS+=("$(served_by)"); done
 CLIENT_HITS=()
 for _ in $(seq 1 5); do CLIENT_HITS+=("$(client_served_by)"); done
 
-ssh_to lb1 'sudo kill "$(cat /tmp/dsr-cap.pid)" 2>/dev/null || true'
+ssh_root_lb1 'kill "$(cat /tmp/dsr-cap.pid)" 2>/dev/null || true'
 sleep 1
 CAP=$(ssh_to lb1 'cat /tmp/dsr-cap.txt 2>/dev/null || true')
 

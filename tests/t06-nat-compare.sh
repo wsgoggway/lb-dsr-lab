@@ -22,15 +22,15 @@ bash "$LAB_DIR/scripts/pf-mode.sh" nat
 sleep 1
 
 FILTER='tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
-ssh_to lb1 "sudo sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
+ssh_root_lb1 "sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
 sleep 2
 
 for _ in $(seq 1 10); do served_by >/dev/null; done
 
-ssh_to lb1 'sudo kill "$(cat /tmp/dsr-cap.pid)" 2>/dev/null || true'
+ssh_root_lb1 'kill "$(cat /tmp/dsr-cap.pid)" 2>/dev/null || true'
 sleep 1
 CAP=$(ssh_to lb1 'cat /tmp/dsr-cap.txt 2>/dev/null || true')
-STATES=$(ssh_to lb1 'sudo pfctl -ss 2>/dev/null | grep -c tcp' || true)
+STATES=$(ssh_root_lb1 'pfctl -ss 2>/dev/null | grep -c tcp' || true)
 
 SYN=$(grep -c ' > 192\.168\.100\.200\.80: Flags \[S\],' <<<"$CAP" || true)
 SYNACK=$(grep -c 'IP 192\.168\.100\.200\.80 > .*Flags \[S\.\],' <<<"$CAP" || true)

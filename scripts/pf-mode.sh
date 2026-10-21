@@ -14,12 +14,12 @@ case $MODE in
   *) die "usage: pf-mode.sh dsr|nat" ;;
 esac
 
-scp -q "${SSH_OPTS[@]}" "$LAB_DIR/freebsd/pf-$MODE.conf" "lab@${VM_IP[lb1]}:/tmp/pf.conf"
+scp -q "${SSH_OPTS[@]}" "$LAB_DIR/freebsd/pf-$MODE.conf" "root@${VM_IP[lb1]}:/tmp/pf.conf"
 # Validate before installing so a bad ruleset cannot leave pf broken.
-ssh_to lb1 'sudo pfctl -n -f /tmp/pf.conf \
-  && sudo cp /tmp/pf.conf /etc/pf.conf \
-  && sudo pfctl -f /etc/pf.conf \
-  && echo "== active rules ==" && sudo pfctl -sr'
+ssh_root_lb1 'pfctl -n -f /tmp/pf.conf \
+  && cp /tmp/pf.conf /etc/pf.conf \
+  && pfctl -f /etc/pf.conf \
+  && echo "== active rules ==" && pfctl -sr'
 
 if [[ $MODE == nat ]]; then
   for rs in rs1 rs2; do

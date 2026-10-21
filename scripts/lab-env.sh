@@ -64,6 +64,12 @@ ssh_to() {
   ssh "${SSH_OPTS[@]}" "lab@${VM_IP[$vm]}" "$@"
 }
 
+# lb1 runs FreeBSD whose cloud image has no sudo; the root account carries
+# the lab key instead (see cloud-init/lb1/user-data).
+ssh_root_lb1() {
+  ssh "${SSH_OPTS[@]}" "root@${VM_IP[lb1]}" "$@"
+}
+
 # Test verdict helpers shared by tests/t*.sh (exit 2 == SKIP).
 test_pass() { echo "PASS: $*"; exit 0; }
 test_fail() { echo "FAIL: $*"; exit 1; }

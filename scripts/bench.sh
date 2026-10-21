@@ -14,4 +14,4 @@ else
 fi
 
 echo "== lb1 pf state info =="
-ssh_to lb1 'sudo pfctl -si'
+ssh_root_lb1 'pfctl -si'

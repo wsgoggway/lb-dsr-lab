@@ -36,7 +36,7 @@ echo "baseline request: ${BASE:-FAILED}"
 ssh_to rs1 'sudo systemctl stop nginx' || test_fail "cannot stop nginx on rs1"
 sleep 1
 # Spread the probes over both backends: kill states first, then use two sources.
-ssh_to lb1 'sudo pfctl -k 0.0.0.0/0 >/dev/null 2>&1 || true
+ssh_root_lb1 'pfctl -k 0.0.0.0/0 >/dev/null 2>&1 || true
             sudo pfctl -F Sources >/dev/null 2>&1 || true'
 FAILS=0
 GOOD=0
@@ -51,7 +51,7 @@ if ((FAILS == 0)); then
   test_fail "no failures with rs1 down - probes never reached rs1, cannot verify failover"
 fi
 
-ssh_to lb1 'sudo pfctl -t webs -T delete 192.168.100.21'
+ssh_root_lb1 'pfctl -t webs -T delete 192.168.100.21'
 GOOD=0
 FAILS=0
 TIMES=()
@@ -73,7 +73,7 @@ if ((FAILS != 0)); then
   test_fail "requests still failing after removing rs1 from <webs>"
 fi
 
-ssh_to lb1 'sudo pfctl -t webs -T add 192.168.100.21'
+ssh_root_lb1 'pfctl -t webs -T add 192.168.100.21'
 ssh_to rs1 'sudo systemctl start nginx'
 sleep 2
 R=$(probe)
