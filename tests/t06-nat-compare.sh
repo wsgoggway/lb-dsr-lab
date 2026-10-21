@@ -21,7 +21,7 @@ echo "== switching lb1 to NAT mode =="
 bash "$LAB_DIR/scripts/pf-mode.sh" nat
 sleep 1
 
-FILTER='tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
+FILTER='tcp port 80'
 ssh_root_lb1 "sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
 sleep 2
 

@@ -28,10 +28,16 @@ client_served_by() {
 
 ssh_to lb1 true || test_fail "cannot ssh to lb1"
 
-FILTER='tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
+FILTER='tcp port 80'
 # Start tcpdump in the background on lb1 (runs as root: FreeBSD image has no sudo).
 ssh_root_lb1 "sh -c 'nohup tcpdump -ni vtnet0 -U -c 600 \"$FILTER\" > /tmp/dsr-cap.txt 2>&1 & echo \$! > /tmp/dsr-cap.pid'"
 sleep 2
+
+# Fresh round-robin: drop states and per-source sticky entries so the two
+# curl sources get consecutive (and thus different) backends.
+ssh_root_lb1 'pfctl -k 0.0.0.0/0 -k 0.0.0.0/0 >/dev/null 2>&1 || true
+            pfctl -F Sources >/dev/null 2>&1 || true'
+sleep 1
 
 HOST_HITS=()
 for _ in $(seq 1 25); do HOST_HITS+=("$(served_by)"); done

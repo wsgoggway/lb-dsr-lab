@@ -25,7 +25,7 @@ ssh_to lb1 true || test_fail "cannot ssh to lb1"
 # Best effort: drop all states and sticky (source tracking) entries so the
 # round-robin pointer decides freshly for both sources.
 ssh_root_lb1 'pfctl -k 0.0.0.0/0 >/dev/null 2>&1 || true
-            sudo pfctl -F Sources >/dev/null 2>&1 || sudo pfctl -F source-tracking >/dev/null 2>&1 || true'
+            pfctl -F Sources >/dev/null 2>&1 || pfctl -F source-tracking >/dev/null 2>&1 || true'
 
 HOST=()
 for _ in $(seq 1 40); do HOST+=("$(served_by)"); done

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # t04-backend-failure.sh - failover by removing a dead backend from <webs>.
 #
-# 1. stop nginx on rs1; probe from host AND client (states are flushed so the
-#    two sources spread): the source pinned to rs1 must see failures;
-# 2. pfctl -t webs -T delete 192.168.100.21 -> all requests must succeed;
-# 3. re-add rs1, restart nginx -> VIP healthy again.
+# 1. with nginx UP, flush source tracking and probe until some source is
+#    pinned to rs1 (round-robin assigns per fresh binding, so this may take
+#    a couple of tries);
+# 2. stop nginx on rs1: the pinned source must see failures;
+# 3. pfctl -t webs -T delete 192.168.100.21 + flush: ALL requests succeed;
+# 4. re-add rs1, restart nginx -> VIP healthy again.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lab-env.sh
@@ -27,31 +29,48 @@ client_served_by() {
     | awk 'tolower($1) ~ /^x-served-by:/ {print $2}' || true)
   tr -d '\r' <<<"$hdr"
 }
+flush_states() {
+  # double -k kills states by src AND dst endpoint; single -k leaves the
+  # reverse-half states that keep the sticky binding alive
+  ssh_root_lb1 'pfctl -k 0.0.0.0/0 -k 0.0.0.0/0 >/dev/null 2>&1 || true
+              pfctl -F Sources >/dev/null 2>&1 || true'
+}
 
 ssh_to lb1 true || test_fail "cannot ssh to lb1"
 
 BASE=$(probe)
 echo "baseline request: ${BASE:-FAILED}"
 
+# Phase 0: pin some source to rs1 while it is still healthy.
+PINNED=''
+for _ in 1 2 3 4 5 6; do
+  flush_states
+  sleep 1
+  if [[ $(probe) == rs1* ]]; then PINNED=host; break; fi
+  if [[ $(client_served_by) == rs1 ]]; then PINNED=client; break; fi
+done
+[[ -n $PINNED ]] || test_fail "could not pin any source to rs1 in 6 tries"
+echo "pinned source: $PINNED -> rs1"
+
+# Phase 1: rs1 dies; the pinned source must fail.
 ssh_to rs1 'sudo systemctl stop nginx' || test_fail "cannot stop nginx on rs1"
 sleep 1
-# Spread the probes over both backends: kill states first, then use two sources.
-ssh_root_lb1 'pfctl -k 0.0.0.0/0 >/dev/null 2>&1 || true
-            sudo pfctl -F Sources >/dev/null 2>&1 || true'
 FAILS=0
 GOOD=0
-for src in host client; do
-  for _ in 1 2 3; do
-    if [[ $src == host ]]; then R=$(probe); B=${R%% *}; else B=$(client_served_by); fi
-    if [[ -n $B ]]; then GOOD=$((GOOD + 1)); else FAILS=$((FAILS + 1)); fi
-  done
+for _ in 1 2 3; do
+  if [[ $PINNED == host ]]; then R=$(probe); B=${R%% *}; else B=$(client_served_by); fi
+  if [[ -n $B ]]; then GOOD=$((GOOD + 1)); else FAILS=$((FAILS + 1)); fi
 done
-echo "rs1 nginx down (rs1 still in <webs>): ok=$GOOD failed=$FAILS"
+echo "rs1 nginx down (rs1 still in <webs>): ok=$GOOD failed=$FAILS (pinned: $PINNED)"
 if ((FAILS == 0)); then
-  test_fail "no failures with rs1 down - probes never reached rs1, cannot verify failover"
+  test_fail "no failures with rs1 down - pinned source never reached rs1"
 fi
 
-ssh_root_lb1 'pfctl -t webs -T delete 192.168.100.21'
+# Phase 2: remove rs1 from the table -> everything must succeed via rs2.
+ssh_root_lb1 'pfctl -t webs -T delete 192.168.100.21
+            pfctl -k 0.0.0.0/0 -k 0.0.0.0/0 >/dev/null 2>&1 || true
+            pfctl -F Sources >/dev/null 2>&1 || true'
+sleep 1
 GOOD=0
 FAILS=0
 TIMES=()
@@ -73,6 +92,7 @@ if ((FAILS != 0)); then
   test_fail "requests still failing after removing rs1 from <webs>"
 fi
 
+# Phase 3: heal.
 ssh_root_lb1 'pfctl -t webs -T add 192.168.100.21'
 ssh_to rs1 'sudo systemctl start nginx'
 sleep 2
@@ -80,4 +100,4 @@ R=$(probe)
 [[ -n ${R%% *} ]] || test_fail "VIP not serving after rs1 recovery"
 echo "recovered: $R"
 
-test_pass "failover OK: rs1 down caused $((FAILS + GOOD)) phase-1 failures, table delete restored service, re-add healed"
+test_pass "failover OK: pinned $PINNED saw rs1 failure, table delete restored service, re-add healed"
