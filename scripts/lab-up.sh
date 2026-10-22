@@ -35,6 +35,7 @@ ensure_vol_from_file "$BASE_VOL_FREEBSD" "$BASE_VOL_FREEBSD"
 ensure_vol_from_file "$BASE_VOL_DEBIAN" "$BASE_VOL_DEBIAN"
 ensure_vol_from_file disk-client "$BASE_VOL_DEBIAN"
 ensure_vol_from_file disk-lb1 "$BASE_VOL_FREEBSD"
+ensure_vol_from_file disk-lb2 "$BASE_VOL_FREEBSD"
 ensure_vol_from_file disk-rs1 "$BASE_VOL_DEBIAN"
 ensure_vol_from_file disk-rs2 "$BASE_VOL_DEBIAN"
 
@@ -47,6 +48,13 @@ if ! "${VIRSH[@]}" net-info net-dsr >/dev/null 2>&1; then
 fi
 "${VIRSH[@]}" net-autostart net-dsr >/dev/null
 "${VIRSH[@]}" net-start net-dsr >/dev/null 2>&1 || true # already active is fine
+
+echo "== network net-sync =="
+if ! "${VIRSH[@]}" net-info net-sync >/dev/null 2>&1; then
+  "${VIRSH[@]}" net-define "$LAB_DIR/libvirt/net-sync.xml" >/dev/null
+fi
+"${VIRSH[@]}" net-autostart net-sync >/dev/null
+"${VIRSH[@]}" net-start net-sync >/dev/null 2>&1 || true # already active is fine
 
 echo "== domains =="
 for vm in "${VM_NAMES[@]}"; do

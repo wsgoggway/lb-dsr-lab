@@ -6,7 +6,7 @@ default: list
 list:
     @just --list
 
-# Define + start the network and all four VMs (idempotent).
+# Define + start the networks and all five VMs (idempotent).
 up:
     bash scripts/lab-up.sh
 
@@ -22,6 +22,7 @@ wipe:
 status:
     virsh -c qemu:///system list --all
     @virsh -c qemu:///system net-info net-dsr || true
+    @virsh -c qemu:///system net-info net-sync || true
 
 # Capture on the lab bridge (sudo). Segment arg is informational for now.
 capture seg="host":
@@ -37,11 +38,15 @@ ssh vm:
 test t:
     bash "tests/t{{t}}.sh"
 
-# Run the whole test suite t00..t06.
+# Run the whole test suite t00..t07.
 test-all:
     bash tests/run-all.sh
 
-# Switch lb1 pf ruleset: just pf-mode dsr | just pf-mode nat
+# CARP/pfsync status of the balancer pair (which node is MASTER, sync link).
+carp:
+    bash scripts/carp-status.sh
+
+# Switch the balancer pair's pf ruleset: just pf-mode dsr | just pf-mode nat
 pf-mode mode:
     bash scripts/pf-mode.sh {{mode}}
 

@@ -1,10 +1,11 @@
 # lb-dsr-lab
 
 Лаборатория на libvirt/QEMU: балансировка нагрузки с Direct Server Return
-(DSR) на чистом pf во FreeBSD 14.5. Один балансировщик (lb1) перенаправляет
-HTTP-трафик на два бэкенда nginx (rs1/rs2) без NAT, а бэкенды отвечают клиенту
-напрямую, минуя балансировщик, подставляя VIP со своего loopback. Отдельная
-VM-клиент нагружает VIP. Всё работает в одной изолированной libvirt-сети.
+(DSR) на чистом pf во FreeBSD 14.5. Пару балансировщиков (lb1 + lb2, CARP)
+перенаправляет HTTP-трафик на два бэкенда nginx (rs1/rs2) без NAT, а бэкенды
+отвечают клиенту напрямую, минуя балансировщик, подставляя VIP со своего
+loopback. Отдельная VM-клиент нагружает VIP. Всё работает в изолированных
+libvirt-сетях: net-dsr (путь данных) и net-sync (pfsync).
 
 ## Что показывает лаборатория
 
@@ -25,9 +26,15 @@ VIP = 192.168.100.200/32.
 | VM     | IP              | MAC               | RAM      | vCPU | ОС | Роль |
 |--------|-----------------|-------------------|----------|------|----|------|
 | client | 192.168.100.10  | 52:54:00:aa:00:10 | 512 MiB  | 1    | Debian 13 genericcloud | клиент |
-| lb1    | 192.168.100.11  | 52:54:00:aa:00:11 | 2048 MiB | 1    | FreeBSD 14.5 BASIC-CLOUDINIT (ufs) | pf DSR, VIP на vtnet0 |
+| lb1    | 192.168.100.11  | 52:54:00:aa:00:11 | 2048 MiB | 1    | FreeBSD 14.5 BASIC-CLOUDINIT (ufs) | pf DSR, CARP MASTER (vhid 1, advskew 0) |
+| lb2    | 192.168.100.12  | 52:54:00:aa:00:12 | 2048 MiB | 1    | FreeBSD 14.5 BASIC-CLOUDINIT (ufs) | pf DSR, CARP BACKUP (vhid 1, advskew 100) |
 | rs1    | 192.168.100.21  | 52:54:00:aa:00:21 | 768 MiB  | 1    | Debian 13 genericcloud | nginx, VIP на lo |
 | rs2    | 192.168.100.22  | 52:54:00:aa:00:22 | 768 MiB  | 1    | Debian 13 genericcloud | nginx, VIP на lo |
+
+У обоих балансировщиков по два NIC: `vtnet0` — сегмент лаборатории (net-dsr),
+`vtnet1` — выделенная sync-сеть `net-sync` (мост `virbr-sync`, чистый L2 без
+IP на хосте), 10.0.100.0/30: lb1 = 10.0.100.1, lb2 = 10.0.100.2. По ней ходит
+только pfsync.
 
 Все диски — qcow2-оверлеи в пуле `default` (базовые тома
 `freebsd-14.5-cloudinit.qcow2` и `debian-13-genericcloud.qcow2`), seed-ISO —
@@ -36,9 +43,11 @@ raw-тома `seed-*` (volid `cidata`).
 ```mermaid
 flowchart LR
     C["client<br/>192.168.100.10"] --- BR["virbr-dsr<br/>net-dsr (NAT-forward)"]
-    L["lb1 - FreeBSD pf<br/>192.168.100.11 + VIP .200"] --- BR
+    L1["lb1 - FreeBSD pf<br/>192.168.100.11, CARP MASTER<br/>VIP .200 (vhid 1)"] --- BR
+    L2["lb2 - FreeBSD pf<br/>192.168.100.12, CARP BACKUP<br/>VIP .200 (vhid 1)"] --- BR
     R1["rs1 - nginx<br/>192.168.100.21"] --- BR
     R2["rs2 - nginx<br/>192.168.100.22"] --- BR
+    L1 ---|"pfsync, net-sync<br/>10.0.100.1 - 10.0.100.2"| L2
 ```
 
 Поток пакета в режиме DSR:
@@ -80,9 +89,9 @@ cp <...> ~/.local/share/lb-dsr-lab/images/debian-13-genericcloud.qcow2
 Подъём и проверка:
 
 ```bash
-just up        # сети, тома, seed-ISO, домены, ожидание DHCP (до 300 с)
+just up        # сети, тома, seed-ISO, домены, ожидание адресов (до 300 с)
 just status
-just test-all  # t00..t06
+just test-all  # t00..t07
 ```
 
 Первый запуск занимает несколько минут: cloud-init ставит пакеты на Debian VM
@@ -119,6 +128,7 @@ sudo tcpdump -ni vtnet0 'tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
 | t04-backend-failure | nginx на rs1 остановлен — ошибки; `pfctl -T delete` — трафик идёт на rs2; восстановление |
 | t05-mtu | 2 МиБ `big.bin` через DSR без обрыва + DF-пинг 1400 байт до VIP |
 | t06-nat-compare | в NAT-режиме SYN-ACK от VIP появляется на lb1 (симметричный путь), затем возврат в DSR |
+| t07-carp-failover | lb1 гасится под живым циклом curl с клиента — lb2 забирает VIP (CARP BACKUP -> MASTER), lb1 восстанавливается |
 
 ## pf DSR vs NAT
 
@@ -149,10 +159,23 @@ sudo tcpdump -ni vtnet0 'tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
 - В NAT-режиме реплаи бэкендов заворачиваются через lb1 хост-маршрутами — это
   временная мера режима сравнения, а не свойство DSR.
 
-## Phase 2: CARP
+## Phase 2: CARP-пара (построено)
 
-Заготовка на будущее: второй балансировщик lb2 и общий VIP через CARP
-(`carp`-интерфейс с vhid/advbase), синхронизация состояний через pfsync,
-DHCP-резервирование. Это даст отказоустойчивость самого балансировщика —
-сейчас единственная точка отказа лаборатории. DSR-правила при этом не
-меняются: route-to продолжает работать поверх виртуального CARP-адреса.
+Второй балансировщик lb2 образует с lb1 CARP-пару поверх общего VIP:
+
+- CARP: vhid 1, пароль `lbdsr`, VIP 192.168.100.200/32 как CARP-алиас на
+  `vtnet0` обоих узлов; lb1 `advskew 0` (MASTER), lb2 `advskew 100` (BACKUP),
+  `net.inet.carp.preempt=1` — восстановившийся lb1 возвращает себе MASTER.
+  Виртуальный MAC пары — `00:00:5e:00:01:01`, поэтому переключение не требует
+  обновления ARP-кэшей.
+- pfsync: `pfsync0 syncdev vtnet1`, синхронизация таблицы состояний по
+  выделенной сети `net-sync` (10.0.100.0/30, lb1 = .1, lb2 = .2, syncpeer —
+  сосед). Правила pf для CARP/pfsync — с `(no-sync)`, чтобы управляющие
+  состояния не реплицировались сами.
+- Правило DSR не меняется: `route-to` работает поверх CARP-адреса на обоих
+  узлах, `pf-dsr.conf` общий для пары (`just pf-mode` заливает его на lb1 и lb2).
+- Отказоустойчивость проверяет тест t07: на клиенте запускается живой цикл
+  из 120 curl, lb1 гасится (`shutdown -p now`), lb2 обязан подхватить VIP
+  (не более 10 ошибок), затем lb1 поднимается обратно (`virsh start lb1`).
+- Статус пары: `just carp` (carp-строка `ifconfig vtnet0` + `pfsync0` на
+  обоих узлах).

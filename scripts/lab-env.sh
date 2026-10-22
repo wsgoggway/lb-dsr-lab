@@ -12,17 +12,22 @@ LAB_VIP="192.168.100.200"
 VIRSH=(virsh -c qemu:///system)
 
 # Lab inventory: names are the libvirt domain names and the indexes of the
-# maps below. NIC is virtio -> vtnet0 inside FreeBSD, eth0/ens*/enp* on Debian.
-VM_NAMES=(client lb1 rs1 rs2)
+# maps below. NIC is virtio -> vtnet0 inside FreeBSD, eth0/ens*/enp* on
+# Debian. The FreeBSD balancers have TWO NICs: vtnet0 = net-dsr (lab segment,
+# 192.168.100.0/24), vtnet1 = net-sync (CARP/pfsync control plane,
+# 10.0.100.0/30).
+VM_NAMES=(client lb1 lb2 rs1 rs2)
 declare -Ar VM_IP=(
   [client]=192.168.100.10
   [lb1]=192.168.100.11
+  [lb2]=192.168.100.12
   [rs1]=192.168.100.21
   [rs2]=192.168.100.22
 )
 declare -Ar VM_MAC=(
   [client]=52:54:00:aa:00:10
   [lb1]=52:54:00:aa:00:11
+  [lb2]=52:54:00:aa:00:12
   [rs1]=52:54:00:aa:00:21
   [rs2]=52:54:00:aa:00:22
 )
@@ -64,10 +69,14 @@ ssh_to() {
   ssh "${SSH_OPTS[@]}" "lab@${VM_IP[$vm]}" "$@"
 }
 
-# lb1 runs FreeBSD whose cloud image has no sudo; the root account carries
-# the lab key instead (see cloud-init/lb1/user-data).
+# The FreeBSD balancers run the cloud image with no sudo; the root account
+# carries the lab key instead (see cloud-init/lb1|lb2/user-data).
 ssh_root_lb1() {
   ssh "${SSH_OPTS[@]}" "root@${VM_IP[lb1]}" "$@"
+}
+
+ssh_root_lb2() {
+  ssh "${SSH_OPTS[@]}" "root@${VM_IP[lb2]}" "$@"
 }
 
 # Test verdict helpers shared by tests/t*.sh (exit 2 == SKIP).

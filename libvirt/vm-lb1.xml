@@ -1,8 +1,10 @@
 <!--
   lb1 - FreeBSD 14.5 BASIC-CLOUDINIT (ufs) load balancer running pure pf DSR.
+  CARP MASTER of the lb1+lb2 pair (vhid 1, advskew 0).
   UEFI-only image -> os firmware='efi' (libvirt picks OVMF + NVRAM).
-  NIC virtio -> vtnet0 inside FreeBSD; VIP 192.168.100.200/32 is an alias on
-  vtnet0, configured by cloud-init (see cloud-init/lb1/user-data).
+  NIC virtio -> vtnet0 (net-dsr, 192.168.100.11) and vtnet1 (net-sync,
+  10.0.100.1/30, pfsync); VIP 192.168.100.200/32 is a CARP alias on vtnet0,
+  configured by cloud-init (see cloud-init/lb1/user-data).
 -->
 <domain type='kvm'>
   <name>lb1</name>
@@ -36,6 +38,11 @@
     <interface type='network'>
       <mac address='52:54:00:aa:00:11'/>
       <source network='net-dsr'/>
+      <model type='virtio'/>
+    </interface>
+    <interface type='network'>
+      <mac address='52:54:00:aa:01:11'/>
+      <source network='net-sync'/>
       <model type='virtio'/>
     </interface>
     <serial type='pty'>

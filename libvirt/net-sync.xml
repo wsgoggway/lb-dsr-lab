@@ -1,0 +1,12 @@
+<!--
+  net-sync: pfsync/CARP control-plane link between lb1 and lb2. Pure L2
+  isolated network: NO forward element, NO ip element, no DHCP - the hosts
+  put 10.0.100.1/30 and 10.0.100.2/30 on vtnet1 themselves (see
+  cloud-init/lb1|lb2). Keeping the host bridge unconfigured keeps the
+  control plane off the host stack entirely.
+-->
+<network>
+  <name>net-sync</name>
+  <!-- pfsync/carp control plane: pure L2, no IP on the host bridge -->
+  <bridge name='virbr-sync' stp='on' delay='0'/>
+</network>

@@ -1,5 +1,12 @@
-# lb1 NIC: virtio -> vtnet0 inside FreeBSD. DHCP from net-dsr.
+# lb1 NICs: virtio -> vtnet0 (net-dsr lab segment) and vtnet1 (net-sync,
+# the CARP/pfsync control-plane /30). MAC-pinned so the sync link is always
+# vtnet1.
 version: 2
 ethernets:
   vtnet0:
     dhcp4: true
+  vtnet1:
+    match:
+      macaddress: "52:54:00:aa:01:11"
+    set-name: vtnet1
+    addresses: [10.0.100.1/30]

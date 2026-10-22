@@ -1,7 +1,8 @@
 # HLD: lb-dsr-lab
 
 Libvirt/QEMU lab demonstrating pure-pf L3/L4 load balancing on FreeBSD with
-Direct Server Return toward Linux nginx backends.
+Direct Server Return toward Linux nginx backends. Phase 2 adds a CARP pair
+(lb1 + lb2) on the shared VIP with pfsync state replication.
 
 ## Components
 
@@ -9,28 +10,40 @@ Direct Server Return toward Linux nginx backends.
 |---------|-------------------|-------------------------------|--------------------------|
 | host    | CachyOS           | libvirt, capture point        | 192.168.100.1 (virbr-dsr)|
 | client  | Debian 13         | traffic source, arping        | 192.168.100.10           |
-| lb1     | FreeBSD 14.5      | L3/L4 balancer (pf route-to)  | 192.168.100.11 + VIP .200|
+| lb1     | FreeBSD 14.5      | L3/L4 balancer, CARP MASTER   | 192.168.100.11 + VIP .200|
+| lb2     | FreeBSD 14.5      | L3/L4 balancer, CARP BACKUP   | 192.168.100.12 + VIP .200|
 | rs1/rs2 | Debian 13 + nginx | real servers (VIP on lo)      | .21 / .22 + VIP/32 on lo |
+
+Balancers carry a second NIC on `net-sync` (isolated L2 bridge `virbr-sync`,
+no host IP, no DHCP): lb1 = 10.0.100.1/30, lb2 = 10.0.100.2/30 - pfsync only.
+CARP: vhid 1, advskew 0 (lb1) / 100 (lb2), virtual MAC 00:00:5e:00:01:01,
+`net.inet.carp.preempt=1` on both.
 
 ## Topology (DSR mode)
 
 ```mermaid
 flowchart LR
-    C["client .10"] -->|"dst MAC = lb1, dst IP = VIP"| LB["lb1 .11 + VIP .200<br>pf route-to round-robin"]
-    LB -->|"dst MAC = rsX, dst IP unchanged"| R1["rs1 .21<br>nginx, VIP/32 on lo"]
-    LB --> R2["rs2 .22<br>nginx, VIP/32 on lo"]
+    C["client .10"] -->|"dst IP = VIP"| LB1["lb1 .11<br>CARP MASTER + VIP .200<br>pf route-to round-robin"]
+    LB2["lb2 .12<br>CARP BACKUP + VIP .200"]
+    LB1 ---|"net-sync 10.0.100.0/30<br>pfsync state replication"| LB2
+    LB1 -->|"dst MAC = rsX, dst IP unchanged"| R1["rs1 .21<br>nginx, VIP/32 on lo"]
+    LB1 --> R2["rs2 .22<br>nginx, VIP/32 on lo"]
     R1 -.->|"SYN-ACK direct, src = VIP"| C
     R2 -.-> C
 ```
+
+If lb1 dies, lb2 takes the VIP over (same CARP virtual MAC, pfsync keeps the
+state table); DSR behavior is identical because both nodes run the same
+ruleset (`freebsd/pf-dsr.conf`).
 
 ## NAT comparison mode
 
 ```mermaid
 flowchart LR
-    C["client .10"] -->|"dst IP = VIP"| LB["lb1: rdr VIP to rsX"]
+    C["client .10"] -->|"dst IP = VIP"| LB["active CARP node: rdr VIP to rsX"]
     LB -->|"dst IP = rsX (NAT)"| R1["rs1"]
     LB --> R2["rs2"]
-    R1 -->|"return path THROUGH lb1"| LB
+    R1 -->|"return path THROUGH lb"| LB
     R2 --> LB
     LB -->|"src = VIP"| C
 ```
@@ -38,14 +51,22 @@ flowchart LR
 ## Packet-flow decisions
 
 - DSR: pf `route-to` forwards without address rewrite; backend replies never
-  transit lb1, so pf tracks states with `(sloppy)`. VIP answers ARP only from
-  lb1; backends suppress ARP (`arp_ignore=1`, `arp_announce=2`).
-- All four VMs share one L2 segment (libvirt `net-dsr`, bridge `virbr-dsr`) -
-  required for DSR, and makes every link sniffable from the host.
+  transit the balancer, so pf tracks states with `(sloppy)`. VIP answers ARP
+  only with the CARP virtual MAC; backends suppress ARP (`arp_ignore=1`,
+  `arp_announce=2`).
+- CARP/pfsync control-plane rules use `keep state (no-sync)` so carp adverts
+  (224.0.0.18 on vtnet0) and pfsync traffic (vtnet1) are not themselves
+  replicated.
+- All VMs share one L2 segment (libvirt `net-dsr`, bridge `virbr-dsr`) -
+  required for DSR, and makes every link sniffable from the host. The sync
+  link is a separate private segment (`net-sync`) so control-plane traffic
+  never mixes with the data path.
 - TCP offloads are disabled on every NIC so host-side tcpdump shows real
   packet boundaries.
 
-## Phase 2 (not built yet)
+## Phase 2 (built)
 
-Second balancer `lb2` + CARP VHID on the VIP + pfsync over a dedicated
-`net-sync` network (10.0.100.0/30); failover test kills lb1 under load.
+Second balancer `lb2` + CARP VHID 1 on the VIP + pfsync over the dedicated
+`net-sync` network (10.0.100.0/30); failover is proven by
+tests/t07-carp-failover.sh, which powers lb1 off under a live client request
+loop and then boots it again. Status: `just carp`.

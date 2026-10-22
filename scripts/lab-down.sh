@@ -36,7 +36,9 @@ if [[ $MODE == --wipe || $MODE == --wipe-bases ]]; then
   done
   "${VIRSH[@]}" net-destroy net-dsr >/dev/null 2>&1 || true
   "${VIRSH[@]}" net-undefine net-dsr >/dev/null 2>&1 || true
-  echo "domains, disks, seeds and net-dsr removed"
+  "${VIRSH[@]}" net-destroy net-sync >/dev/null 2>&1 || true
+  "${VIRSH[@]}" net-undefine net-sync >/dev/null 2>&1 || true
+  echo "domains, disks, seeds, net-dsr and net-sync removed"
 fi
 
 if [[ $MODE == --wipe-bases ]]; then

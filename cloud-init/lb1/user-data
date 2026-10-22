@@ -1,5 +1,6 @@
 #cloud-config
-# lb1 - FreeBSD 14.5 pf DSR load balancer.
+# lb1 - FreeBSD 14.5 pf DSR load balancer, CARP MASTER of the lb1+lb2 pair
+# (vhid 1, advskew 0; sync peer lb2 = 10.0.100.2 over vtnet1/net-sync).
 #
 # Only users / write_files / runcmd are used so this works with both
 # nuageinit (base system) and the python cloud-init shipped in the
@@ -22,8 +23,10 @@ write_files:
       @SSH_PUBKEY@
 runcmd:
   # Static addressing: no DHCP in the lab, hosts are pinned (see README).
+  # The VIP alias is a CARP alias (vhid 1); lb2 carries the identical vhid
+  # with advskew 100, so lb1 wins the election while healthy.
   - 'sysrc ifconfig_vtnet0="inet 192.168.100.11/24"'
-  - 'sysrc ifconfig_vtnet0_alias0="inet 192.168.100.200/32"'
+  - 'sysrc ifconfig_vtnet0_alias0="vhid 1 advskew 0 pass lbdsr 192.168.100.200/32"'
   - 'sysrc defaultrouter="192.168.100.1"'
   # Raises net.inet.ip.forwarding - needed by the NAT comparison mode.
   - 'sysrc gateway_enable="YES"'
@@ -32,11 +35,22 @@ runcmd:
   - 'sysrc pf_rules="/etc/pf.conf"'
   # nuageinit applied only the FIRST write_files entry, so pf.conf is
   # delivered here as base64 (openssl base64 is in the base system).
-  - 'printf "%s" "IyBsYjEgRFNSIHJ1bGVzZXQgKEZyZWVCU0QgMTQueCBsZWdhY3kgcGYgc3ludGF4OiBubyBtYXRjaC9yZHItdG8ga2V5d29yZHMpLgojCiMgUnVsZXMgYXJlIGRlbGliZXJhdGVseSBTSU5HTEUtTElORTogYSB0cmFpbGluZyBzcGFjZSBhZnRlciBhIGxpbmUKIyBjb250aW51YXRpb24gYmFja3NsYXNoIGJyZWFrcyBwZi5jb25mIHdpdGggYSBiYXJlICJzeW50YXggZXJyb3IiLgojCiMgRFNSIGZvcndhcmRpbmc6IHBmIG9ubHkgc2VlcyB0aGUgY2xpZW50IGhhbGYgb2YgZWFjaCBUQ1AgZmxvdyAtIGJhY2tlbmRzCiMgYW5zd2VyIHRoZSBjbGllbnQgZGlyZWN0bHkgd2l0aCBzcmM9VklQIC0gaGVuY2U6CiMgICAtIGtlZXAgc3RhdGUgKHNsb3BweSk6IHRoZSBmaXJld2FsbCBuZXZlciBzZWVzIHRoZSByZXR1cm4gaGFsZiBvZiB0aGUgZmxvdwojICAgICAoZG9jdW1lbnRlZCBmb3IgZXhhY3RseSB0aGlzIGFzeW1tZXRyaWMgcm91dGluZyBjYXNlKTsKIyAgIC0gc3RpY2t5LWFkZHJlc3M6IHRoZSByb3VuZC1yb2JpbiBkZWNpc2lvbiBpcyByZW1lbWJlcmVkIHBlciBzb3VyY2UgSVAuCiMgVGhlIHRhYmxlIGlzIGludGVudGlvbmFsbHkgTk9UIGBjb25zdGA6IHRlc3RzL3QwNC1iYWNrZW5kLWZhaWx1cmUuc2ggcmVtb3ZlcwojIGFuZCByZS1hZGRzIG1lbWJlcnMgYXQgcnVudGltZSB2aWEgYHBmY3RsIC10IHdlYnMgLVQgZGVsZXRlL2FkZGAuCiMgRnJlZUJTRCdzIHBmIGtlZXBzIHRoZSBPTEQgZ3JhbW1hcjogcm91dGUtdG8gc3RhbmRzIHJpZ2h0IGFmdGVyIGBvbiA8aWY+YAojICh3aXRoIGl0cyBwb29sIG9wdGlvbnMpLCBOT1QgYXQgdGhlIGVuZCBvZiB0aGUgcnVsZSBsaWtlIE9wZW5CU0QgPj0gNC43LAojIGFuZCBga2VlcCBzdGF0ZSAoLi4uKWAgbXVzdCBiZSB0aGUgTEFTVCBlbGVtZW50IG9mIHRoZSBydWxlLiBBbnl0aGluZyBlbHNlCiMgaXMgYSBiYXJlICJzeW50YXggZXJyb3IiIG9uIEZyZWVCU0QgMTQuCnNldCBza2lwIG9uIGxvMAp0YWJsZSA8d2Vicz4geyAxOTIuMTY4LjEwMC4yMSwgMTkyLjE2OC4xMDAuMjIgfQoKcGFzcyBpbiBxdWljayBvbiB2dG5ldDAgcm91dGUtdG8gKHZ0bmV0MCA8d2Vicz4pIHJvdW5kLXJvYmluIHN0aWNreS1hZGRyZXNzIHByb3RvIHRjcCB0byAxOTIuMTY4LjEwMC4yMDAgcG9ydCA4MCBrZWVwIHN0YXRlIChzbG9wcHkpCgojIGxhYiBtYW5hZ2VtZW50IHRyYWZmaWMKcGFzcyBpbiBxdWljayBwcm90byBpY21wCnBhc3MgaW4gcXVpY2sgcHJvdG8gdGNwIHRvIDE5Mi4xNjguMTAwLjExIHBvcnQgMjIKcGFzcyBvdXQgcXVpY2sga2VlcCBzdGF0ZQo=" | openssl base64 -d -A > /etc/pf.conf'
+  - 'printf "%s" "IyBsYi1kc3ItbGFiIERTUiBydWxlc2V0IChGcmVlQlNEIDE0LnggbGVnYWN5IHBmIHN5bnRheDogbm8gbWF0Y2gvcmRyLXRvCiMga2V5d29yZHMpLiBTSEFSRUQgYnkgdGhlIHdob2xlIENBUlAgcGFpcjogYm90aCBsYjEgYW5kIGxiMiBydW4gdGhpcyBleGFjdAojIGZpbGUgc28gYSBmYWlsb3ZlciBuZXZlciBjaGFuZ2VzIGZpbHRlcmluZyBiZWhhdmlvci4KIwojIFJ1bGVzIGFyZSBkZWxpYmVyYXRlbHkgU0lOR0xFLUxJTkU6IGEgdHJhaWxpbmcgc3BhY2UgYWZ0ZXIgYSBsaW5lCiMgY29udGludWF0aW9uIGJhY2tzbGFzaCBicmVha3MgcGYuY29uZiB3aXRoIGEgYmFyZSAic3ludGF4IGVycm9yIi4KIwojIERTUiBmb3J3YXJkaW5nOiBwZiBvbmx5IHNlZXMgdGhlIGNsaWVudCBoYWxmIG9mIGVhY2ggVENQIGZsb3cgLSBiYWNrZW5kcwojIGFuc3dlciB0aGUgY2xpZW50IGRpcmVjdGx5IHdpdGggc3JjPVZJUCAtIGhlbmNlOgojICAgLSBrZWVwIHN0YXRlIChzbG9wcHkpOiB0aGUgZmlyZXdhbGwgbmV2ZXIgc2VlcyB0aGUgcmV0dXJuIGhhbGYgb2YgdGhlIGZsb3cKIyAgICAgKGRvY3VtZW50ZWQgZm9yIGV4YWN0bHkgdGhpcyBhc3ltbWV0cmljIHJvdXRpbmcgY2FzZSk7CiMgICAtIHN0aWNreS1hZGRyZXNzOiB0aGUgcm91bmQtcm9iaW4gZGVjaXNpb24gaXMgcmVtZW1iZXJlZCBwZXIgc291cmNlIElQLgojIFRoZSB0YWJsZSBpcyBpbnRlbnRpb25hbGx5IE5PVCBgY29uc3RgOiB0ZXN0cy90MDQtYmFja2VuZC1mYWlsdXJlLnNoIHJlbW92ZXMKIyBhbmQgcmUtYWRkcyBtZW1iZXJzIGF0IHJ1bnRpbWUgdmlhIGBwZmN0bCAtdCB3ZWJzIC1UIGRlbGV0ZS9hZGRgLgojIEZyZWVCU0QncyBwZiBrZWVwcyB0aGUgT0xEIGdyYW1tYXI6IHJvdXRlLXRvIHN0YW5kcyByaWdodCBhZnRlciBgb24gPGlmPmAKIyAod2l0aCBpdHMgcG9vbCBvcHRpb25zKSwgTk9UIGF0IHRoZSBlbmQgb2YgdGhlIHJ1bGUgbGlrZSBPcGVuQlNEID49IDQuNywKIyBhbmQgYGtlZXAgc3RhdGUgKC4uLilgIG11c3QgYmUgdGhlIExBU1QgZWxlbWVudCBvZiB0aGUgcnVsZS4gQW55dGhpbmcgZWxzZQojIGlzIGEgYmFyZSAic3ludGF4IGVycm9yIiBvbiBGcmVlQlNEIDE0LgpzZXQgc2tpcCBvbiBsbzAKdGFibGUgPHdlYnM+IHsgMTkyLjE2OC4xMDAuMjEsIDE5Mi4xNjguMTAwLjIyIH0KCnBhc3MgaW4gcXVpY2sgb24gdnRuZXQwIHJvdXRlLXRvICh2dG5ldDAgPHdlYnM+KSByb3VuZC1yb2JpbiBzdGlja3ktYWRkcmVzcyBwcm90byB0Y3AgdG8gMTkyLjE2OC4xMDAuMjAwIHBvcnQgODAga2VlcCBzdGF0ZSAoc2xvcHB5KQoKIyBDQVJQL3Bmc3luYyBjb250cm9sIHBsYW5lOiBDQVJQIGFkdmVydHMgKHByb3RvIGNhcnAsIG11bHRpY2FzdCAyMjQuMC4wLjE4KQojIGFycml2ZSBvbiB2dG5ldDAsIHBmc3luYyBzdGF0ZSByZXBsaWNhdGlvbiAocHJvdG8gcGZzeW5jKSBmbG93cyBvdmVyIHZ0bmV0MS4KIyAobm8tc3luYykga2VlcHMgdGhlc2UgY29udHJvbC1wbGFuZSBzdGF0ZXMgb3V0IG9mIHBmc3luYyByZXBsaWNhdGlvbiBpdHNlbGYuCnBhc3MgaW4gcXVpY2sgcHJvdG8gY2FycCBrZWVwIHN0YXRlIChuby1zeW5jKQpwYXNzIGluIHF1aWNrIHByb3RvIHBmc3luYyBrZWVwIHN0YXRlIChuby1zeW5jKQoKIyBsYWIgbWFuYWdlbWVudCB0cmFmZmljIChib3RoIGJhbGFuY2VycykKcGFzcyBpbiBxdWljayBwcm90byBpY21wCnBhc3MgaW4gcXVpY2sgcHJvdG8gdGNwIHRvIDE5Mi4xNjguMTAwLjExIHBvcnQgMjIKcGFzcyBpbiBxdWljayBwcm90byB0Y3AgdG8gMTkyLjE2OC4xMDAuMTIgcG9ydCAyMgpwYXNzIG91dCBxdWljayBrZWVwIHN0YXRlCg==" | openssl base64 -d -A > /etc/pf.conf'
   - 'sysctl net.inet.ip.forwarding=1'
   # Runtime addresses (rc.conf entries above persist them across reboots).
   - 'ifconfig vtnet0 inet 192.168.100.11/24'
-  - 'ifconfig vtnet0 alias 192.168.100.200/32'
+  - 'ifconfig vtnet0 alias vhid 1 advskew 0 pass lbdsr 192.168.100.200/32'
+  # Sync network + pfsync + CARP preemption (phase 2): pfsync replicates the
+  # state table to lb2 (10.0.100.2) over the dedicated /30 on vtnet1;
+  # preempt=1 lets a recovered higher-precedence node retake MASTER.
+  - 'sysrc ifconfig_vtnet1="inet 10.0.100.1/30"'
+  - 'ifconfig vtnet1 10.0.100.1/30'
+  - 'sysrc cloned_interfaces="pfsync"'
+  - 'sysrc ifconfig_pfsync0="syncdev vtnet1 syncpeer 10.0.100.2 up"'
+  - 'ifconfig pfsync0 create >/dev/null 2>&1 || true'
+  - 'ifconfig pfsync0 syncdev vtnet1 syncpeer 10.0.100.2 up'
+  - 'sysctl net.inet.carp.preempt=1'
+  - 'grep -q carp.preempt /etc/sysctl.conf || printf "net.inet.carp.preempt=1\n" >> /etc/sysctl.conf'
   # Offloads off so tcpdump on the host bridge shows readable packets.
   - 'ifconfig vtnet0 -tso -lro -rxcsum -txcsum'
   # pf.ko may not be loaded yet at first-boot runcmd time; rc.d/pf handles it

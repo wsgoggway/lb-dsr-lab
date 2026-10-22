@@ -1,25 +1,30 @@
 # lb-dsr-lab
 
 Libvirt/QEMU lab demonstrating Direct Server Return (DSR) load balancing with
-pure pf on FreeBSD 14.5: one load balancer (lb1) forwards HTTP traffic toward
-two Debian 13 nginx backends (rs1/rs2) without NAT; the backends answer the
-client directly using the VIP on their loopback. A Debian client VM exercises
-the VIP. Everything runs on one isolated libvirt network on a single host.
+pure pf on FreeBSD 14.5: a CARP pair of load balancers (lb1 MASTER + lb2
+BACKUP) forwards HTTP traffic toward two Debian 13 nginx backends (rs1/rs2)
+without NAT; the backends answer the client directly using the VIP on their
+loopback. A Debian client VM exercises the VIP. Everything runs on two
+isolated libvirt networks (net-dsr data path, net-sync pfsync control plane)
+on a single host.
 
 ## Stack
 
 - libvirt (`qemu:///system`), q35 guests with UEFI (OVMF), virtio disk/net
-- lb1: FreeBSD 14.5 BASIC-CLOUDINIT (ufs qcow2), pure pf - no relayd, no CARP yet
+- lb1 + lb2: FreeBSD 14.5 BASIC-CLOUDINIT (ufs) CARP pair (vhid 1,
+  VIP 192.168.100.200/32, advskew 0/100, pfsync over net-sync), pure pf
 - client / rs1 / rs2: Debian 13 genericcloud + cloud-init (NoCloud seed ISOs)
 - Isolated network `net-dsr` (bridge virbr-dsr), 192.168.100.0/24,
-  VIP 192.168.100.200/32
+  VIP 192.168.100.200/32; sync network `net-sync` (isolated L2
+  virbr-sync), 10.0.100.0/30
 
 ## Commands
 
 - `just up` / `just down` / `just wipe` - full lab lifecycle (idempotent)
 - `just status` - virsh list + net-dsr status
-- `just test-all` - test suite t00..t06 (`just test 02` for a single test)
-- `just pf-mode dsr|nat` - switch the lb1 ruleset
+- `just test-all` - test suite t00..t07 (`just test 02` for a single test)
+- `just carp` - CARP/pfsync status of the balancer pair
+- `just pf-mode dsr|nat` - switch the balancer pair's ruleset
 - `just bench` - HTTP benchmark against the VIP
 - `just ssh lb1|rs1|rs2|client` - SSH as user `lab` (key auto-generated under
   `~/.local/share/lb-dsr-lab/ssh/`)
@@ -33,7 +38,7 @@ the VIP. Everything runs on one isolated libvirt network on a single host.
   reference snippet
 - `linux/` - realserver sysctl and nginx configs (inlined into cloud-init)
 - `scripts/` - lab lifecycle, seed ISO build, pf mode switch, bench, helpers
-- `tests/` - t00..t06 plus `capture-hints.md`; run via `just test-all`
+- `tests/` - t00..t07 plus `capture-hints.md`; run via `just test-all`
 
 ## Constraints
 

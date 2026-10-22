@@ -1,0 +1,20 @@
+# lb2 NICs: virtio -> vtnet0 (net-dsr lab segment) and vtnet1 (net-sync,
+# the CARP/pfsync control-plane /30). MAC-pinned so the interface names are
+# always deterministic.
+version: 2
+ethernets:
+  vtnet0:
+    match:
+      macaddress: "52:54:00:aa:00:12"
+    set-name: vtnet0
+    addresses: [192.168.100.12/24]
+    routes:
+      - to: default
+        via: 192.168.100.1
+    nameservers:
+      addresses: [192.168.100.1]
+  vtnet1:
+    match:
+      macaddress: "52:54:00:aa:01:12"
+    set-name: vtnet1
+    addresses: [10.0.100.2/30]
