@@ -107,6 +107,24 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	ctl := peer.NewController(carpW, cfg.Node, cfg.Peer.Endpoint, peerCli, rec, hc, store)
 	ctl.SetLogger(logger)
 
+	// Bind ALL listeners before any pf mutation: a second instance (stale
+	// supervisor, manual restart overlap) must die right here, at bind,
+	// instead of crash-looping through the initial reconcile and re-adding
+	// health-excluded members to the live tables every restart (t08 war).
+	clientLis, err := net.Listen("tcp", cfg.Listen.Client)
+	if err != nil {
+		return fmt.Errorf("listen client %s: %w", cfg.Listen.Client, err)
+	}
+	peerLis, err := net.Listen("tcp", cfg.Listen.Peer)
+	if err != nil {
+		return fmt.Errorf("listen peer %s: %w", cfg.Listen.Peer, err)
+	}
+	metricsLis, err := net.Listen("tcp", cfg.Listen.Metrics)
+	if err != nil {
+		return fmt.Errorf("listen metrics %s: %w", cfg.Listen.Metrics, err)
+	}
+	logger.Info("listeners bound", "client", cfg.Listen.Client, "peer", cfg.Listen.Peer, "metrics", cfg.Listen.Metrics)
+
 	// Initial reconcile: converge once before serving.
 	if rev, err := store.Pull(ctx); err == nil {
 		if st, err := state.LoadState(cfg.State.Dir); err == nil {
@@ -162,20 +180,6 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	mux.Handle("/metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	metricsSrv := &http.Server{Addr: cfg.Listen.Metrics, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
-	// Listeners.
-	clientLis, err := net.Listen("tcp", cfg.Listen.Client)
-	if err != nil {
-		return fmt.Errorf("listen client %s: %w", cfg.Listen.Client, err)
-	}
-	peerLis, err := net.Listen("tcp", cfg.Listen.Peer)
-	if err != nil {
-		return fmt.Errorf("listen peer %s: %w", cfg.Listen.Peer, err)
-	}
-	metricsLis, err := net.Listen("tcp", cfg.Listen.Metrics)
-	if err != nil {
-		return fmt.Errorf("listen metrics %s: %w", cfg.Listen.Metrics, err)
-	}
-
 	// Watchers (all context-driven tickers).
 	pfState := func() *state.State {
 		st, err := state.LoadState(cfg.State.Dir)
@@ -197,7 +201,7 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	// Publish the local registry view to the peer controller after probes.
 	healthW.LocalSink = ctl.SetLocalView
 
-	gitW := watchers.GitWatcher{Store: store, Rec: rec, Metrics: m, Role: carpW.Role, Log: logger}
+	gitW := watchers.GitWatcher{Store: store, Rec: rec, Metrics: m, Role: carpW.Role, Log: logger, Reg: reg}
 	sysW := watchers.SysWatcher{Metrics: m, Log: logger}
 
 	go func() { clientGRPC.Serve(clientLis) }()

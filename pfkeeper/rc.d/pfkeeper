@@ -35,6 +35,16 @@ pfkeeper_stop() {
   # daemon(8) -r respawns the child instantly: kill the supervisor first.
   if [ -f "$daemon_pidfile" ]; then kill "$(cat $daemon_pidfile)" 2>/dev/null; fi
   if [ -f "$pidfile" ]; then kill "$(cat $pidfile)" 2>/dev/null; fi
+  # Orphaned supervisors: a repeated start overwrites the daemon pidfile,
+  # leaving the previous daemon(8) unkillable via pidfiles. Sweep by
+  # command line so no second instance survives to fight the new one over
+  # the ports and the pf tables.
+  pkill -TERM -f "daemon: ${procname}" 2>/dev/null
+  pkill -TERM -f "^${procname} -config" 2>/dev/null
+  pkill -TERM -f "${procname} -config ${pfkeeper_config}" 2>/dev/null
+  sleep 1
+  pkill -KILL -f "daemon: ${procname}" 2>/dev/null
+  pkill -KILL -f "${procname} -config ${pfkeeper_config}" 2>/dev/null
   wait_for_pids $(
     [ -f "$daemon_pidfile" ] && cat $daemon_pidfile
     [ -f "$pidfile" ] && cat $pidfile

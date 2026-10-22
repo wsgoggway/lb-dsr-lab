@@ -100,3 +100,123 @@ func (stubPfRunner) Run(_ context.Context, _ string, args ...string) (string, er
 	}
 	return "", nil
 }
+
+// Loopback stand-ins for the lab members: the probers dial real addresses,
+// so the unit test uses 127.0.0.x aliases (A: closed port -> DOWN, B: live
+// endpoint -> UP).
+const (
+	addrDown = "127.0.0.2"
+	addrUp   = "127.0.0.1"
+)
+
+// recordingPfRunner answers pfctl calls and records mutating argv lines.
+type recordingPfRunner struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (r *recordingPfRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	r.mu.Lock()
+	r.calls = append(r.calls, joined)
+	r.mu.Unlock()
+	if strings.Contains(joined, "-t web -T show") {
+		return addrDown + "\n" + addrUp + "\n", nil
+	}
+	return "", nil
+}
+
+func (r *recordingPfRunner) count(substr string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, c := range r.calls {
+		if strings.Contains(c, substr) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestApplyEffectiveChainKeys (t08 exact reproduction): local AND peer views
+// agree (member A DOWN connect, member B UP 200) — the effective set must be
+// {B} and only A is deleted. The views arrive in the composite "table/addr"
+// key format actually used by Registry.View/SetPeerView; the watcher must
+// narrow them per table before ApplyEffective, otherwise every member looks
+// DOWN and the table empties (regression guard for the key-mismatch bug).
+func TestApplyEffectiveChainKeys(t *testing.T) {
+	ctx := context.Background()
+
+	// Member A: closed loopback port (connect failure); member B: live http
+	// endpoint. (The probers dial the real member addresses, so the unit
+	// test uses loopback aliases instead of the lab IPs.)
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedPort := closed.Addr().(*net.TCPAddr).Port
+	closed.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+	srvPort := srv.Listener.Addr().(*net.TCPAddr).Port
+
+	addresses := []string{addrDown, addrUp}
+
+	downSpec := state.HealthSpec{
+		Type: "http", Port: closedPort, Path: "/", Interval: "5s", Timeout: "1s", Rise: 1, Fall: 1,
+	}
+	upSpec := state.HealthSpec{
+		Type: "http", Port: srvPort, Path: "/", Interval: "5s", Timeout: "1s", Rise: 1, Fall: 1,
+	}
+
+	reg := health.NewRegistry()
+	reg.Register("web", addrDown, downSpec)
+	reg.Register("web", addrUp, upSpec)
+	st := &state.State{
+		Tables: []state.TableDef{{
+			Name: "web", Members: addresses,
+			Health: &upSpec,
+		}},
+		Anchors: map[string]string{},
+	}
+
+	runner := &recordingPfRunner{}
+	pf := pfctl.NewClient("/sbin/pfctl", runner)
+	hc, err := reconcile.NewHealthController(pf, nil, "and")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The peer view mirrors the local one, in the composite key format that
+	// SetPeerView/PublishHealth actually produce.
+	peerView := func() (map[string]string, bool) {
+		return map[string]string{
+			"web/" + addrDown: health.StateDOWN,
+			"web/" + addrUp:   health.StateUP,
+		}, true
+	}
+
+	w := &HealthWatcher{
+		Reg:      reg,
+		Hc:       hc,
+		Metrics:  metrics.New("test"),
+		State:    func() *state.State { return st },
+		PeerView: peerView,
+	}
+	if !w.ProbeOnce(ctx) {
+		t.Fatal("first pass reported no change, want A INACTIVE->DOWN")
+	}
+
+	if n := runner.count("-T delete " + addrDown); n != 1 {
+		t.Fatalf("deletes of DOWN member = %d, want 1", n)
+	}
+	if n := runner.count("-T delete " + addrUp); n != 0 {
+		t.Fatalf("deletes of healthy member = %d, want 0 (t08: table was emptied)", n)
+	}
+	if n := runner.count("-T add"); n != 0 {
+		t.Fatalf("adds = %d, want 0 (both members already live)", n)
+	}
+}

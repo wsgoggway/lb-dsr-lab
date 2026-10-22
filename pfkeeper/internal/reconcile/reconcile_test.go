@@ -626,3 +626,41 @@ func TestDriftRespectsHealthy(t *testing.T) {
 		}
 	})
 }
+
+// TestAndConsensusBothViewsAgree (t08 contract case): local and peer both
+// see .21 DOWN and .22 UP — effective must be {.22} with only .21 removed.
+func TestAndConsensusBothViewsAgree(t *testing.T) {
+	ctx := context.Background()
+	fr := &fakeRunner{rules: []fakeRule{
+		{match: "-t web -T show", out: "192.168.100.21\n192.168.100.22\n"},
+	}}
+	hc, err := NewHealthController(pfctl.NewClient("/sbin/pfctl", fr), nil, "and")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := []string{"192.168.100.21", "192.168.100.22"}
+	local := map[string]string{
+		"192.168.100.21": health.StateDOWN,
+		"192.168.100.22": health.StateUP,
+	}
+	peer := map[string]string{
+		"192.168.100.21": health.StateDOWN,
+		"192.168.100.22": health.StateUP,
+	}
+	res, err := hc.ApplyEffective(ctx, "web", desired, local, peer, true)
+	if err != nil {
+		t.Fatalf("ApplyEffective() error = %v", err)
+	}
+	if len(res.Removed) != 1 || res.Removed[0] != "192.168.100.21" {
+		t.Fatalf("removed = %+v, want only 192.168.100.21", res.Removed)
+	}
+	if len(res.Added) != 0 {
+		t.Fatalf("added = %+v, want none (.22 is healthy and already live)", res.Added)
+	}
+	if fr.countCalls("-T delete 192.168.100.21") != 1 {
+		t.Fatal("delete of .21 not issued")
+	}
+	if fr.countCalls("-T delete 192.168.100.22") != 0 {
+		t.Fatal("healthy .22 must not be deleted")
+	}
+}

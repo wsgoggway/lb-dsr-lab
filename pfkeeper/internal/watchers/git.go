@@ -75,7 +75,15 @@ func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
 		w.Metrics.IncGitPull("error")
 		return
 	}
-	res, err := w.Rec.Reconcile(ctx, &st, rev, w.healthyView())
+	// Diagnostics for the config-vs-health layering: what the config layer
+	// is allowed to apply this pass (Debug is invisible at the default Info
+	// level; flip with the daemon's -log level when investigating).
+	healthy := w.healthyView()
+	for _, td := range st.Tables {
+		log.Debug("git reconcile pass", "revision", rev, "table", td.Name,
+			"desired", td.Members, "healthy", healthy[td.Name])
+	}
+	res, err := w.Rec.Reconcile(ctx, &st, rev, healthy)
 	if err != nil {
 		log.Error("reconcile failed", "revision", rev, "error", err)
 		w.Metrics.IncGitPull("error")

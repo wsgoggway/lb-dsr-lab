@@ -3,6 +3,7 @@ package watchers
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/health"
@@ -176,22 +177,26 @@ func (w *HealthWatcher) syncRegistry(st *state.State, log *slog.Logger) {
 }
 
 // applyEffective recomputes membership per desired table using the consensus
-// views (local registry + peer).
+// views (local registry + peer). Both views are keyed "table/addr"
+// (Registry.View / SetPeerView), so they are narrowed to the addr-keyed
+// per-table view ApplyEffective expects — passing the composite maps straight
+// through made every member look DOWN and emptied the tables (t08).
 func (w *HealthWatcher) applyEffective(ctx context.Context, log *slog.Logger) {
 	st := w.State()
 	if st == nil {
 		return
 	}
 	local := w.Reg.View()
-	peerView, peerReachable := map[string]string{}, false
+	peerFull, peerReachable := map[string]string{}, false
 	if w.PeerView != nil {
-		peerView, peerReachable = w.PeerView()
+		peerFull, peerReachable = w.PeerView()
 	}
 	for _, td := range st.Tables {
 		if len(td.Members) == 0 {
 			continue
 		}
-		res, err := w.Hc.ApplyEffective(ctx, td.Name, td.Members, local, peerView, peerReachable)
+		res, err := w.Hc.ApplyEffective(ctx, td.Name, td.Members,
+			tableView(local, td.Name), tableView(peerFull, td.Name), peerReachable)
 		if err != nil {
 			log.Warn("effective apply failed", "table", td.Name, "error", err)
 			continue
@@ -201,6 +206,24 @@ func (w *HealthWatcher) applyEffective(ctx context.Context, log *slog.Logger) {
 				"added", res.Added, "removed", res.Removed)
 		}
 	}
+}
+
+// tableView narrows a composite "table/addr"-keyed health view down to the
+// addr-keyed view of one table (HealthController.ApplyEffective's contract).
+// Plain address keys (no "/") are tolerated for robustness.
+func tableView(view map[string]string, table string) map[string]string {
+	out := make(map[string]string, len(view))
+	for k, v := range view {
+		t, addr, found := strings.Cut(k, "/")
+		if !found {
+			out[k] = v
+			continue
+		}
+		if t == table {
+			out[addr] = v
+		}
+	}
+	return out
 }
 
 // parseInterval falls back to def for empty/unparsable durations (validation
