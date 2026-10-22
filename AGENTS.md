@@ -52,3 +52,19 @@ the VIP. Everything runs on one isolated libvirt network on a single host.
 - DSR is asymmetric by design: pf sees only one half of each TCP flow, hence
   `keep state (sloppy)` and `sticky-address` on the `route-to` rule, and
   arp_ignore/arp_announce + VIP-on-lo on the backends.
+
+## Known limitation (2026-10-22)
+
+The FreeBSD guest (lb1) currently has NO working outbound internet: pkg and
+freebsd-update fail ("Network is unreachable" / resolver failures), while the
+Debian guests reach the internet fine through the same NAT network. Root cause
+not yet chased down (guest DNS via dnsmasq .1 and connectivity to
+pkg.freebsd.org both fail). Consequences:
+- doas/sudo CANNOT be pkg-installed on lb1 right now; lab automation uses
+  root SSH (ssh_root_lb1, key provisioned by cloud-init) - no package deps.
+- pkg repo overrides are already in place on lb1
+  (/usr/local/etc/pkg/repos/freebsd.conf, mirror_type NONE) and resolv.conf
+  points at 192.168.100.1 - once connectivity is fixed, `pkg install doas`
+  + /usr/local/etc/doas.conf (`permit nopass keepenv lab`) gives the idiomatic
+  BSD privilege path; note doas is a PACKAGE on FreeBSD (security/doas),
+  like sudo it is not in the base system.
