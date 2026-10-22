@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -173,5 +174,60 @@ func TestTCPHealthWithoutPortIsValid(t *testing.T) {
 	}}}
 	if err := ValidateState(st); err != nil {
 		t.Fatalf("ValidateState(icmp, no port) error = %v", err)
+	}
+}
+
+// TestLoadStateBodyJQFolded (live-stand regression): the expect block may
+// carry the nested body.jq shape; it must fold into Expect.JQ, otherwise the
+// prober silently skips the jq check and dead members stay UP.
+func TestLoadStateBodyJQFolded(t *testing.T) {
+	dir := t.TempDir()
+	yamlBody := `name: webs
+members:
+  - 192.168.100.21
+health:
+  type: http
+  port: 80
+  path: /healthz
+  interval: 5s
+  timeout: 2s
+  rise: 2
+  fall: 3
+  expect:
+    status:
+      - 2xx
+    body:
+      jq: '.status == "ok"'
+    jq: ""
+`
+	if err := os.MkdirAll(filepath.Join(dir, "tables"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tables", "webs.yaml"), []byte(yamlBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(dir)
+	if err != nil {
+		t.Fatalf("LoadState() error = %v", err)
+	}
+	td := st.Tables[0]
+	if td.Health == nil || td.Health.Expect.JQ != `.status == "ok"` {
+		t.Fatalf("Expect.JQ = %q, want the body.jq folded in", td.Health.Expect.JQ)
+	}
+	if err := ValidateState(st); err != nil {
+		t.Fatalf("ValidateState() error = %v (folded jq must compile)", err)
+	}
+
+	// Flat form still wins when both are present and non-empty.
+	yamlFlat := strings.Replace(yamlBody, "jq: \"\"", "jq: '.up'", 1)
+	if err := os.WriteFile(filepath.Join(dir, "tables", "webs.yaml"), []byte(yamlFlat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := LoadState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st2.Tables[0].Health.Expect.JQ != ".up" {
+		t.Fatalf("flat jq = %q, want .up (flat wins over body)", st2.Tables[0].Health.Expect.JQ)
 	}
 }

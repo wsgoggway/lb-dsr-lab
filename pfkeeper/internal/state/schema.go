@@ -25,6 +25,29 @@ type HealthExpect struct {
 	JQ     string   `yaml:"jq"`     // gojq expression over the response body, optional
 }
 
+// UnmarshalYAML accepts both on-disk shapes of the expect block: the
+// canonical flat form (status + jq) and the nested variant with body.jq
+// seen on live stands (expect.body.jq). The nested jq folds into JQ when
+// the flat one is empty; marshalling always emits the flat form.
+func (e *HealthExpect) UnmarshalYAML(node *yaml.Node) error {
+	var raw struct {
+		Status []string `yaml:"status"`
+		JQ     string   `yaml:"jq"`
+		Body   *struct {
+			JQ string `yaml:"jq"`
+		} `yaml:"body"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	e.Status = raw.Status
+	e.JQ = raw.JQ
+	if e.JQ == "" && raw.Body != nil {
+		e.JQ = raw.Body.JQ
+	}
+	return nil
+}
+
 // HealthSpec describes how to probe a table member.
 type HealthSpec struct {
 	Type     string       `yaml:"type"`     // "http" | "tcp" | "icmp"

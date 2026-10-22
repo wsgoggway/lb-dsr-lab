@@ -35,6 +35,10 @@ write_files:
       # which breaks the NAT comparison mode (tests/t06, scripts/pf-mode.sh).
       net.ipv4.conf.all.accept_redirects = 0
       net.ipv4.conf.default.accept_redirects = 0
+  - path: /var/www/healthz
+    permissions: '0644'
+    content: |
+      {"status":"ok","host":"rs2"}
   - path: /etc/nginx/sites-available/vip.conf
     permissions: '0644'
     content: |
@@ -47,11 +51,11 @@ write_files:
           # Marked by lb tests to see which backend served each request.
           add_header X-Served-By $hostname always;
 
+          # healthz served from a FILE (/var/www/healthz, JSON) so tests
+          # can rewrite the payload without touching nginx.
           location = /healthz {
-              # default_type instead of add_header: a location-level add_header
-              # would drop the inherited X-Served-By header.
-              default_type text/plain;
-              return 200 "ok $hostname\n";
+              default_type application/json;
+              root /var/www;
           }
 
           location / {

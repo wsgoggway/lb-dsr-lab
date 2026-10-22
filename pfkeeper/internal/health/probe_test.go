@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
 
@@ -205,4 +207,58 @@ func portOf(addr string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// TestStateSpecBodyJQFullPath (live-stand regression): a tables/webs.yaml
+// with the nested expect.body.jq must reach the prober as Expect.JQ —
+// broken payload with HTTP 200 must fail with jq_false, ok payload passes.
+func TestStateSpecBodyJQFullPath(t *testing.T) {
+	var td state.TableDef
+	yamlBody := `name: webs
+health:
+  type: http
+  port: 1
+  path: /healthz
+  interval: 5s
+  timeout: 2s
+  rise: 2
+  fall: 3
+  expect:
+    status:
+      - 2xx
+    body:
+      jq: '.status == "ok"'
+`
+	if err := yaml.Unmarshal([]byte(yamlBody), &td); err != nil {
+		t.Fatal(err)
+	}
+	if td.Health.Expect.JQ == "" {
+		t.Fatal("Expect.JQ lost between the yaml shape and the spec (regression)")
+	}
+
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"broken"}`))
+	}))
+	defer broken.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer good.Close()
+
+	probe := func(addr string, port int) Result {
+		spec := *td.Health
+		spec.Port = port
+		return (HTTPProber{Timeout: time.Second}).Probe(context.Background(), addr, spec)
+	}
+
+	res := probe("127.0.0.1", portOf(strings.TrimPrefix(broken.URL, "http://")))
+	if res.Passed || res.Reason != ReasonJQFalse {
+		t.Fatalf("broken payload: res = %+v, want jq_false", res)
+	}
+	res = probe("127.0.0.1", portOf(strings.TrimPrefix(good.URL, "http://")))
+	if !res.Passed || res.JQOutput != "true" {
+		t.Fatalf("ok payload: res = %+v, want pass with jq true", res)
+	}
 }
