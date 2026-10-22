@@ -26,6 +26,12 @@ type ConfigApplier interface {
 	Reconcile(ctx context.Context, st *state.State, revision string, healthy reconcile.HealthyView) (reconcile.ReconcileResult, error)
 }
 
+// HealthApplier is the health-layer slice the controller needs to prune
+// freshly applied snapshots (satisfied by *reconcile.HealthController).
+type HealthApplier interface {
+	ApplyEffective(ctx context.Context, table string, desired []string, localView, peerView map[string]string, peerReachable bool) (reconcile.EffectiveResult, error)
+}
+
 // PeerState is the latest observation of the peer.
 type PeerState struct {
 	Reachable    bool
@@ -50,9 +56,11 @@ type Controller struct {
 	self    string
 	cli     *PeerClient
 	applier ConfigApplier
-	// hc is the shared health layer, wired for M7 effective recomputation
-	// after ApplySnapshot; intentionally unused in M5.
-	hc    *reconcile.HealthController
+	// hc prunes health-excluded members right after a snapshot lands: the
+	// snapshot is applied as full desired, and without an immediate
+	// effective-set pass the BACKUP would flap until the next local state
+	// change.
+	hc    HealthApplier
 	store *state.Store
 	log   *slog.Logger
 
@@ -77,12 +85,19 @@ type Controller struct {
 // NewController wires the peering controller. peerAddr is kept for
 // diagnostics; the connection itself lives in cli.
 func NewController(role RoleSource, self, peerAddr string, cli *PeerClient, applier ConfigApplier, hc *reconcile.HealthController, store *state.Store) *Controller {
+	// Normalize: a nil *HealthController must NOT become a typed-nil
+	// interface in the hc field (that would defeat the nil check in
+	// applyHealth and panic on the nil receiver).
+	var health HealthApplier
+	if hc != nil {
+		health = hc
+	}
 	return &Controller{
 		role:         role,
 		self:         self,
 		cli:          cli,
 		applier:      applier,
-		hc:           hc,
+		hc:           health,
 		store:        store,
 		log:          slog.Default(),
 		TickInterval: DefaultTickInterval,
@@ -382,7 +397,47 @@ func (c *Controller) ApplySnapshot(ctx context.Context, snap *pfkeeperv1.Effecti
 	// Record the applied snapshot as our SyncCheck identity (the peering
 	// server also calls SetAppliedSnapshot; this covers direct callers).
 	c.SetAppliedSnapshot(snap.GetConfigHash(), snap.GetRevision())
+	// The snapshot landed as full desired; converge the effective set to
+	// desired ∩ localHealthy immediately instead of waiting for the next
+	// local state change (otherwise the BACKUP flaps against every
+	// periodic snapshot).
+	c.applyHealth(ctx, st)
 	return res, nil
+}
+
+// applyHealth re-applies the health-filtered membership for every table of
+// the just-applied snapshot (point add/delete, never replace).
+func (c *Controller) applyHealth(ctx context.Context, st *state.State) {
+	if c.hc == nil {
+		return
+	}
+	c.mu.Lock()
+	local := c.localView
+	c.mu.Unlock()
+	peer := c.PeerView()
+	peerReachable := c.Snapshot().Reachable
+	for _, td := range st.Tables {
+		if _, err := c.hc.ApplyEffective(ctx, td.Name, td.Members,
+			viewForTable(local, td.Name), viewForTable(peer, td.Name), peerReachable); err != nil {
+			c.log.Warn("post-snapshot health apply failed", "table", td.Name, "error", err)
+		}
+	}
+}
+
+// viewForTable narrows a composite "table/addr" view down to the addr-keyed
+// view of one table (HealthController.ApplyEffective's contract).
+func viewForTable(view map[string]string, table string) map[string]string {
+	out := make(map[string]string, len(view))
+	for k, v := range view {
+		if t, addr, ok := splitLocalViewKey(k); ok {
+			if t == table {
+				out[addr] = v
+			}
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // healthView converts the local view into the wire HealthView.

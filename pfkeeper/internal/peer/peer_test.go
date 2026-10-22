@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	pfkeeperv1 "github.com/wsgoggway/lb-dsr-lab/pfkeeper/api/pfkeeperv1"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/pfctl"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/reconcile"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
@@ -520,5 +523,139 @@ func TestApplySnapshotRecordsIdentity(t *testing.T) {
 	}
 	if st := c.PeerStatus(); st.Diverged {
 		t.Fatalf("status = %+v, want not diverged after heal", st)
+	}
+}
+
+// simPf is a stateful pf simulator: TableShow returns the live member set,
+// add/delete mutate it — so health passes observe their own effect.
+type simPf struct {
+	mu    sync.Mutex
+	live  map[string]bool
+	calls []string
+}
+
+func newSimPf(members ...string) *simPf {
+	live := map[string]bool{}
+	for _, m := range members {
+		live[m] = true
+	}
+	return &simPf{live: live}
+}
+
+func (s *simPf) Run(_ context.Context, _ string, args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, joined)
+	switch {
+	case strings.Contains(joined, "-t web -T show"):
+		live := make([]string, 0, len(s.live))
+		for m := range s.live {
+			live = append(live, m)
+		}
+		sort.Strings(live)
+		return strings.Join(live, "\n"), nil
+	case strings.Contains(joined, "-T add "):
+		s.live[args[len(args)-1]] = true
+	case strings.Contains(joined, "-T delete "):
+		delete(s.live, args[len(args)-1])
+	}
+	return "", nil
+}
+
+func (s *simPf) has(member string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.live[member]
+}
+
+func (s *simPf) count(substr string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, c := range s.calls {
+		if strings.Contains(c, substr) {
+			n++
+		}
+	}
+	return n
+}
+
+// snapshotApplier models the BACKUP config layer: Reconcile lands the full
+// desired set in pf (TableReplace verbatim).
+type snapshotApplier struct {
+	sim   *simPf
+	calls int
+}
+
+func (a *snapshotApplier) Reconcile(_ context.Context, st *state.State, rev string, _ reconcile.HealthyView) (reconcile.ReconcileResult, error) {
+	a.calls++
+	for _, td := range st.Tables {
+		for _, m := range td.Members {
+			a.sim.Run(context.Background(), "pfctl", "-t", td.Name, "-T", "add", m) //nolint:errcheck // simulator
+		}
+	}
+	return reconcile.ReconcileResult{Revision: rev}, nil
+}
+
+// TestBackupSnapshotPrunedByLocalHealth (t08 BACKUP regression): a snapshot
+// lands as full desired, and the health layer must prune it to
+// desired ∩ localHealthy IMMEDIATELY — and again on every repeat snapshot,
+// without ever touching the healthy member.
+func TestBackupSnapshotPrunedByLocalHealth(t *testing.T) {
+	ctx := context.Background()
+	const mDown = "192.168.100.21"
+	const mUp = "192.168.100.22"
+
+	sim := newSimPf()
+	cli := startPeer(t, &fakePeer{})
+	defer cli.Close()
+
+	hc, err := reconcile.NewHealthController(pfctl.NewClient("/sbin/pfctl", sim), nil, "and")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewController(NewStaticRole(string(RoleBackup)), "lb2", "lb1:8444", cli,
+		&snapshotApplier{sim: sim}, hc, seedStore(t))
+
+	// Local health: .21 DOWN (rs1 nginx stopped), .22 UP.
+	c.SetLocalView(map[string]string{
+		LocalViewKey("web", mDown): "DOWN",
+		LocalViewKey("web", mUp):   "UP",
+	})
+
+	snap := &pfkeeperv1.EffectiveConfigSnapshot{
+		Revision:   "r1",
+		ConfigHash: "h1",
+		Tables:     map[string]string{"web": mDown + "\n" + mUp},
+	}
+
+	// First snapshot: full desired lands, health prunes .21 at once.
+	if _, err := c.ApplySnapshot(ctx, snap); err != nil {
+		t.Fatalf("ApplySnapshot() error = %v", err)
+	}
+	if sim.has(mDown) {
+		t.Fatal("health-excluded .21 still live after snapshot")
+	}
+	if !sim.has(mUp) {
+		t.Fatal("healthy .22 missing after snapshot")
+	}
+	if n := sim.count("-T delete " + mUp); n != 0 {
+		t.Fatalf("healthy member deleted %d times, want 0", n)
+	}
+
+	// Periodic repeat snapshot (same desired): prune runs again, .21 does
+	// not survive, .22 still never touched.
+	if _, err := c.ApplySnapshot(ctx, snap); err != nil {
+		t.Fatalf("second ApplySnapshot() error = %v", err)
+	}
+	if sim.has(mDown) || !sim.has(mUp) {
+		t.Fatalf("pf = %v/%v, want only the healthy member", sim.has(mDown), sim.has(mUp))
+	}
+	if n := sim.count("-T delete " + mUp); n != 0 {
+		t.Fatalf("healthy member deleted %d times after repeat, want 0", n)
+	}
+	if n := sim.count("-T delete " + mDown); n < 2 {
+		t.Fatalf("DOWN member deleted %d times, want >=2 (once per snapshot)", n)
 	}
 }

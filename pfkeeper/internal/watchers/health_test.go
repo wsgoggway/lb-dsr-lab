@@ -2,12 +2,14 @@ package watchers
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/health"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/metrics"
@@ -218,5 +220,94 @@ func TestApplyEffectiveChainKeys(t *testing.T) {
 	}
 	if n := runner.count("-T add"); n != 0 {
 		t.Fatalf("adds = %d, want 0 (both members already live)", n)
+	}
+}
+
+// TestApplyEffectiveOnPeerViewChange: the consensus re-runs when the
+// peer-published view changes even without local state flips — the MASTER
+// changing its mind must take effect on the BACKUP within one tick.
+func TestApplyEffectiveOnPeerViewChange(t *testing.T) {
+	ctx := context.Background()
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	// ONE wildcard listener + ONE table spec (as in production: a single
+	// health spec per table), reachable from both loopback aliases. Both
+	// members are locally healthy.
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: ok, ReadHeaderTimeout: 2 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	const memberA = "127.0.0.2"
+	const memberB = "127.0.0.1"
+
+	// Warm the manual server: Serve() races the first probe otherwise.
+	warm := func(url string) {
+		t.Helper()
+		client := &http.Client{Timeout: 500 * time.Millisecond}
+		for i := 0; i < 100; i++ {
+			resp, err := client.Get(url)
+			if err == nil {
+				_ = resp.Body.Close()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("warmup failed for %s", url)
+	}
+	warm(fmt.Sprintf("http://%s:%d/", memberA, port))
+	warm(fmt.Sprintf("http://%s:%d/", memberB, port))
+
+	spec := state.HealthSpec{Type: "http", Port: port, Path: "/", Interval: "5s", Timeout: "1s", Rise: 1, Fall: 1}
+	reg := health.NewRegistry()
+	reg.Register("web", memberA, spec)
+	reg.Register("web", memberB, spec)
+
+	st := &state.State{Tables: []state.TableDef{{
+		Name: "web", Members: []string{memberA, memberB}, Health: &spec,
+	}}, Anchors: map[string]string{}}
+
+	runner := &recordingPfRunner{} // show returns memberA+memberB (see addr consts)
+	pf := pfctl.NewClient("/sbin/pfctl", runner)
+	hc, err := reconcile.NewHealthController(pf, nil, "and")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	peerView := map[string]string{
+		"web/" + memberA: health.StateUP,
+		"web/" + memberB: health.StateUP,
+	}
+	w := &HealthWatcher{
+		Reg:      reg,
+		Hc:       hc,
+		Metrics:  metrics.New("test"),
+		State:    func() *state.State { return st },
+		PeerView: func() (map[string]string, bool) { return peerView, true },
+	}
+
+	// Both agree UP: monitors rise (INACTIVE->UP) but no pf mutations.
+	_ = w.ProbeOnce(ctx)
+	if n := runner.count("-T delete"); n != 0 {
+		t.Fatalf("deletes with agreeing views = %d, want 0", n)
+	}
+
+	// Master changes its mind: A is DOWN on the peer, still UP locally.
+	peerView["web/"+memberA] = health.StateDOWN
+	changed := w.ProbeOnce(ctx)
+	for _, m := range reg.List() {
+		t.Logf("dbg after flip: %s state=%s", m.Address, m.State())
+	}
+	t.Logf("dbg changed=%v calls=%v", changed, runner.calls)
+	if n := runner.count("-T delete " + memberA); n != 1 {
+		t.Fatalf("deletes after peer flip = %d, want 1 (consensus re-ran)", n)
+	}
+	if n := runner.count("-T delete " + memberB); n != 0 {
+		t.Fatalf("healthy member deleted %d times, want 0", n)
 	}
 }

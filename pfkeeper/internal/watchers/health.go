@@ -3,6 +3,7 @@ package watchers
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -36,10 +37,12 @@ type HealthWatcher struct {
 	LocalSink func(map[string]string)
 	Log       *slog.Logger
 
-	nextDue     map[string]time.Time
-	lastSt      map[string]string // monitor key -> last published state
-	published   bool
-	lastPublish time.Time
+	nextDue           map[string]time.Time
+	lastSt            map[string]string // monitor key -> last published state
+	published         bool
+	lastPublish       time.Time
+	lastPeerView      map[string]string // peer view at the previous iteration
+	lastPeerReachable bool
 }
 
 // republishInterval bounds how often the full view is re-published even
@@ -72,14 +75,33 @@ func (w *HealthWatcher) Run(ctx context.Context) {
 }
 
 // tickOnce is one full iteration: probe due monitors, publish the view per
-// the startup/change/periodic rule, recompute effective membership on
-// change. Exported via ProbeOnce for tests.
-func (w *HealthWatcher) tickOnce(ctx context.Context, log *slog.Logger) {
+// the startup/change/periodic rule, recompute effective membership on local
+// state change OR peer-view change. Reports whether any LOCAL member state
+// changed.
+func (w *HealthWatcher) tickOnce(ctx context.Context, log *slog.Logger) bool {
 	changed := w.tick(ctx, log)
+	peerChanged := w.trackPeerView()
 	w.publish(changed)
-	if changed {
+	if changed || peerChanged {
+		// Re-run the consensus when the MASTER changed its mind too, not
+		// only on local state flips.
 		w.applyEffective(ctx, log)
 	}
+	return changed
+}
+
+// trackPeerView reports whether the peer-published view (or its
+// reachability) changed since the previous iteration.
+func (w *HealthWatcher) trackPeerView() bool {
+	peer, reachable := map[string]string{}, false
+	if w.PeerView != nil {
+		peer, reachable = w.PeerView()
+	}
+	changed := !maps.Equal(peer, w.lastPeerView) || reachable != w.lastPeerReachable
+	// Clone: callers may mutate their map in place; the stored snapshot must
+	// not alias it.
+	w.lastPeerView, w.lastPeerReachable = maps.Clone(peer), reachable
+	return changed
 }
 
 // publish hands the full local view to LocalSink per the
@@ -95,19 +117,15 @@ func (w *HealthWatcher) publish(changed bool) {
 	}
 }
 
-// ProbeOnce performs exactly one probing iteration synchronously (tests,
-// and the daemon's startup path). Reports whether any member state changed.
+// ProbeOnce performs exactly one iteration synchronously — identical to a
+// single Run-loop tick (tests, and the daemon's startup path). Reports
+// whether any local member state changed.
 func (w *HealthWatcher) ProbeOnce(ctx context.Context) bool {
 	log := w.Log
 	if log == nil {
 		log = slog.Default()
 	}
-	changed := w.tick(ctx, log)
-	w.publish(changed)
-	if changed {
-		w.applyEffective(ctx, log)
-	}
-	return changed
+	return w.tickOnce(ctx, log)
 }
 
 // tick syncs the registry, probes due monitors and reports whether any
