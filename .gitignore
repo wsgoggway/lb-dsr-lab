@@ -1,3 +1,6 @@
 *.iso
 *.pcap
 *.log
+pfkeeper/bin/
+pfkeeper/certs/
+*.csr

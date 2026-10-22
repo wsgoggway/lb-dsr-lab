@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+// pfkeeper control-plane API.
+// Two listeners share this contract:
+//   - client gRPC (8443): admin/operator/viewer certificates, all services
+//     except PeeringService;
+//   - peer gRPC (8444): node certificates (CN=lb1|lb2, role node),
+//     PeeringService only.
+package pfkeeper.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/wsgoggway/lb-dsr-lab/pfkeeper/api/pfkeeperv1;pfkeeperv1";
+
+// ---- common types ----
+
+// Health check specification, as stored in the git state (tables/*.yaml).
+message HealthSpec {
+  string type = 1;        // "http" | "tcp" | "icmp"
+  int32 port = 2;
+  string path = 3;        // http: request path
+  string interval = 4;    // duration, e.g. "5s"
+  string timeout = 5;     // duration, e.g. "2s"
+  int32 rise = 6;         // consecutive passes -> UP
+  int32 fall = 7;         // consecutive failures -> DOWN
+  Expect expect = 8;      // http only
+
+  message Expect {
+    repeated string status = 1; // codes/ranges: "200", "200-399", "2xx"; default 2xx
+    string jq = 2;              // gojq expression over the response body, optional
+  }
+}
+
+// Table desired state, as stored in the git state.
+message Table {
+  string name = 1;
+  bool persist = 2;
+  repeated string members = 3; // IPs
+  string description = 4;
+  HealthSpec health = 5;
+}
+
+// Member health as seen by this node (or reported by the peer).
+message MemberHealth {
+  string table = 1;
+  string address = 2;
+  string state = 3;        // "UP" | "DOWN" | "INACTIVE"
+  int32 status_code = 4;   // last http probe
+  string body_excerpt = 5; // truncated to 4 KiB
+  string jq_output = 6;    // gojq output of the last probe
+  string reason = 7;       // machine reason of the last failure:
+                           // status_code|json_invalid|jq_false|jq_error|timeout|connect
+  google.protobuf.Timestamp checked_at = 8;
+}
+
+// pf runtime statistics (pfctl -si).
+message PfStats {
+  uint64 states_entries = 1;
+  uint64 states_searches = 2;
+  uint64 states_inserts = 3;
+  uint64 states_removals = 4;
+  uint64 counter_match = 5;
+  uint64 counter_state_mismatch = 6;
+  google.protobuf.Timestamp collected_at = 7;
+}
+
+message TableDiff {
+  string table = 1;
+  repeated string missing = 2; // in desired, not in pf
+  repeated string extra = 3;   // in pf, not in desired
+}
+
+// ---- TableService (client 8443; operator/admin for mutations) ----
+
+service TableService {
+  rpc ListTables(google.protobuf.Empty) returns (ListTablesResponse);
+  rpc GetTable(GetTableRequest) returns (GetTableResponse);
+  // SetTable replaces the desired member set in git, commits (actor = client CN)
+  // and reconciles on both nodes.
+  rpc SetTable(SetTableRequest) returns (SetTableResponse);
+  rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
+  rpc DeleteMembers(DeleteMembersRequest) returns (DeleteMembersResponse);
+  // TestAddress runs `pfctl -t <table> -T test <addr>` locally.
+  rpc TestAddress(TestAddressRequest) returns (TestAddressResponse);
+}
+
+message ListTablesResponse { repeated Table tables = 1; }
+message GetTableRequest { string name = 1; }
+message GetTableResponse {
+  Table table = 1;              // desired (git)
+  repeated string effective = 2; // current pf table members on this node
+  string revision = 3;           // git commit applied
+}
+message SetTableRequest {
+  string name = 1;
+  repeated string members = 2;
+  string reason = 3;   // free-form, goes into the git commit message
+}
+message SetTableResponse { string commit = 1; }
+message AddMembersRequest { string table = 1; repeated string members = 2; string reason = 3; }
+message AddMembersResponse { string commit = 1; }
+message DeleteMembersRequest { string table = 1; repeated string members = 2; string reason = 3; }
+message DeleteMembersResponse { string commit = 1; }
+message TestAddressRequest { string table = 1; string address = 2; }
+message TestAddressResponse { bool found = 1; }
+
+// ---- RuleService (client 8443) ----
+
+service RuleService {
+  // GetAnchors returns the pfkeeper/* anchor rules currently applied.
+  rpc GetAnchors(google.protobuf.Empty) returns (GetAnchorsResponse);
+  // Validate checks a rules fragment with `pfctl -a pfkeeper -nf` (no apply).
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+  // ApplyMainConf validates and installs conf/pf.conf as the main ruleset.
+  // Explicit-only operation; regular reconcile never touches the main conf.
+  rpc ApplyMainConf(ApplyMainConfRequest) returns (ApplyMainConfResponse);
+  // Diff returns desired-vs-current per table/anchor.
+  rpc Diff(google.protobuf.Empty) returns (DiffResponse);
+}
+
+message GetAnchorsResponse { map<string, string> anchors = 1; } // name -> rules text
+message ValidateRequest { string rules = 1; }
+message ValidateResponse { bool ok = 1; string error = 2; }
+message ApplyMainConfRequest { bool dry_run = 1; }
+message ApplyMainConfResponse { bool applied = 1; string validation_error = 2; }
+message DiffResponse { repeated TableDiff tables = 1; bool diverged = 2; }
+
+// ---- HealthService (client 8443) ----
+
+service HealthService {
+  rpc ListHealth(ListHealthRequest) returns (ListHealthResponse);
+  // Inspect returns the full last probe result (body, jq output, reason).
+  rpc Inspect(InspectRequest) returns (InspectResponse);
+  // ForceCheck runs an immediate probe, bypassing the interval.
+  rpc ForceCheck(ForceCheckRequest) returns (MemberHealth);
+}
+
+message ListHealthRequest { string table = 1; } // empty = all
+message ListHealthResponse { repeated MemberHealth members = 1; }
+message InspectRequest { string table = 1; string address = 2; }
+message InspectResponse {
+  MemberHealth member = 1;
+  map<string, string> headers = 2;
+}
+message ForceCheckRequest { string table = 1; string address = 2; }
+
+// ---- StatusService (client 8443) ----
+
+service StatusService {
+  rpc PfStats(google.protobuf.Empty) returns (PfStats);
+  rpc CarpState(google.protobuf.Empty) returns (CarpStateResponse);
+  rpc PeerState(google.protobuf.Empty) returns (PeerStateResponse);
+  rpc Version(google.protobuf.Empty) returns (VersionResponse);
+}
+
+message CarpStateResponse {
+  string role = 1;       // MASTER|BACKUP|INIT
+  string vhid = 2;
+  string interface = 3;
+}
+message PeerStateResponse {
+  bool reachable = 1;
+  string peer_role = 2;
+  string peer_revision = 3;
+  int64 lag_seconds = 4;
+  bool diverged = 5;
+}
+message VersionResponse { string version = 1; string commit = 2; string node = 3; }
+
+// ---- AdminService (client 8443; admin only) ----
+
+service AdminService {
+  // Sync pulls the git state and reconciles now.
+  rpc Sync(google.protobuf.Empty) returns (SyncResponse);
+  // Rollback checks out the given commit in the state repo and reconciles.
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+}
+
+message SyncResponse { string revision = 1; int32 applied_tables = 2; }
+message RollbackRequest { string commit = 1; }
+message RollbackResponse { string revision = 1; }
+
+// ---- PeeringService (peer 8444; node certificates only) ----
+
+service PeeringService {
+  // EffectiveConfigSnapshot is what the MASTER pushes to the BACKUP.
+  message EffectiveConfigSnapshot {
+    string revision = 1;          // git commit the config came from
+    string config_hash = 2;       // sha256 over the applied desired state
+    map<string, string> tables = 3;  // table name -> members, one per line
+    map<string, string> anchors = 4; // anchor name -> rules text
+  }
+  // PublishHealth carries the sender's per-member health view (consensus modes).
+  message HealthView {
+    string node = 1;
+    repeated MemberHealth members = 2;
+  }
+  // SyncCheck compares hashes; the requester learns whether it diverged.
+  message SyncCheckRequest { string config_hash = 1; string revision = 2; }
+  message SyncCheckResponse {
+    bool diverged = 1;
+    string peer_revision = 2;
+    string peer_config_hash = 3;
+  }
+  // RedirectWrite lets the BACKUP proxy a mutation to the MASTER.
+  message RedirectWriteRequest {
+    string method = 1;    // e.g. "TableService/SetTable"
+    bytes payload = 2;    // marshalled request
+    string actor_cn = 3;  // original client CN
+  }
+  message RedirectWriteResponse { bytes payload = 4; }
+
+  rpc PushConfig(EffectiveConfigSnapshot) returns (google.protobuf.Empty);
+  rpc PublishHealth(HealthView) returns (google.protobuf.Empty);
+  rpc SyncCheck(SyncCheckRequest) returns (SyncCheckResponse);
+  rpc RedirectWrite(RedirectWriteRequest) returns (RedirectWriteResponse);
+}
