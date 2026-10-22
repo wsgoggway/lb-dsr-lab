@@ -4,7 +4,15 @@
 version: 2
 ethernets:
   vtnet0:
-    dhcp4: true
+    match:
+      macaddress: "52:54:00:aa:00:11"
+    set-name: vtnet0
+    addresses: [192.168.100.11/24]
+    routes:
+      - to: default
+        via: 192.168.100.1
+    nameservers:
+      addresses: [192.168.100.1]
   vtnet1:
     match:
       macaddress: "52:54:00:aa:01:11"

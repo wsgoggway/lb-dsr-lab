@@ -39,7 +39,7 @@ fi
 
 # == phase C: failover =======================================================
 echo "== phase C: powering lb1 off under a live client loop =="
-ssh_to client "nohup sh -c 'for i in \$(seq 1 120); do if curl -sS -m 2 -o /dev/null http://192.168.100.200/; then echo ok; else echo fail; fi; sleep 0.1; done > /tmp/t7-loop.txt 2>&1' >/dev/null 2>&1 &"
+ssh_to client "nohup sh -c 'for i in \$(seq 1 120); do if curl -sS -m 2 -o /dev/null http://192.168.100.200/ 2>/dev/null; then echo ok; else echo fail; fi; sleep 0.1; done > /tmp/t7-loop.txt 2>&1' >/dev/null 2>&1 &"
 sleep 2
 ssh_root_lb1 'shutdown -p now' || true # the shutdown kills sshd mid-run
 DEADLINE=$((SECONDS + 60))
@@ -55,10 +55,10 @@ LINES=0
 DEADLINE=$((SECONDS + 90))
 while ((SECONDS < DEADLINE)); do
   LINES=$(ssh_to client 'wc -l < /tmp/t7-loop.txt' 2>/dev/null | tr -d ' ' || echo 0)
-  if [[ $LINES == 120 ]]; then break; fi
+  if (( LINES >= 120 )); then break; fi
   sleep 3
 done
-if [[ $LINES != 120 ]]; then
+if (( LINES < 120 )); then
   test_fail "client loop did not finish (got $LINES/120 results in 90s)"
 fi
 LOOP=$(ssh_to client 'cat /tmp/t7-loop.txt')
