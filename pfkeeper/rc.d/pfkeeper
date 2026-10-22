@@ -12,7 +12,8 @@ rcvar=pfkeeper_enable
 
 command="/usr/sbin/daemon"
 procname="/usr/local/bin/pfkeeper"
-pidfile="/var/run/pfkeeper.pid"
+pidfile="/var/run/pfkeeper.pid"          # child (Go process)
+daemon_pidfile="/var/run/pfkeeper-daemon.pid"  # daemon(8) supervisor
 
 load_rc_config $name
 
@@ -21,8 +22,24 @@ load_rc_config $name
 : ${pfkeeper_flags:=""}
 : ${pfkeeper_log:="/var/log/pfkeeper.log"}
 
+# go-git needs these to resolve ~/.ssh/known_hosts for the origin fetch;
+# daemon(8) child does not inherit a useful HOME otherwise.
+export HOME=/root
+export SSH_KNOWN_HOSTS=/root/.ssh/known_hosts
+
 pfkeeper_chdir="/var/db/pfkeeper"
-command_args="-r -f -P ${pidfile} -o ${pfkeeper_log} \
+command_args="-r -f -P ${daemon_pidfile} -p ${pidfile} -o ${pfkeeper_log} \
   ${procname} -config ${pfkeeper_config} ${pfkeeper_flags}"
+
+pfkeeper_stop() {
+  # daemon(8) -r respawns the child instantly: kill the supervisor first.
+  if [ -f "$daemon_pidfile" ]; then kill "$(cat $daemon_pidfile)" 2>/dev/null; fi
+  if [ -f "$pidfile" ]; then kill "$(cat $pidfile)" 2>/dev/null; fi
+  wait_for_pids $(
+    [ -f "$daemon_pidfile" ] && cat $daemon_pidfile
+    [ -f "$pidfile" ] && cat $pidfile
+  ) 2>/dev/null
+  rm -f "$daemon_pidfile" "$pidfile"
+}
 
 run_rc_command "$1"

@@ -13,7 +13,7 @@ make -C "$PFK" build-freebsd
 
 for node in "${NODES[@]}"; do
   echo "== deploying to $node"
-  ssh "${SSH_OPTS[@]}" -i "$KEY" "root@$node" 'mkdir -p /usr/local/bin /usr/local/etc/pfkeeper /var/db/pfkeeper /var/log'
+  ssh "${SSH_OPTS[@]}" -i "$KEY" "root@$node" 'mkdir -p /usr/local/bin /usr/local/etc/pfkeeper /var/db/pfkeeper /var/log; service pfkeeper stop >/dev/null 2>&1 || true; rm -f /var/run/pfkeeper.pid /var/run/pfkeeper-daemon.pid'
   scp -O -q "${SSH_OPTS[@]}" -i "$KEY" "$PFK/bin/freebsd/pfkeeper" "root@$node:/usr/local/bin/pfkeeper"
   scp -O -q "${SSH_OPTS[@]}" -i "$KEY" "$PFK/bin/freebsd/pfk" "root@$node:/usr/local/bin/pfk"
   scp -O -q "${SSH_OPTS[@]}" -i "$KEY" "$PFK/rc.d/pfkeeper" "root@$node:/etc/rc.d/pfkeeper"

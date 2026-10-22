@@ -27,16 +27,27 @@ type HealthWatcher struct {
 	// Interval is the tick granularity (default 1s); per-member intervals
 	// come from the health specs.
 	Interval time.Duration
-	// LocalSink, when set, receives the local registry view after every
-	// probing tick (main wires it to peer.Controller.SetLocalView).
+	// LocalSink, when set, receives the FULL local registry view on startup
+	// (right after the first probe pass), on every member state change and
+	// then at least every republishInterval — so the peer-published view can
+	// never stay empty while members exist. Main wires it to
+	// peer.Controller.SetLocalView.
 	LocalSink func(map[string]string)
 	Log       *slog.Logger
 
-	nextDue map[string]time.Time
-	lastSt  map[string]string // monitor key -> last published state
+	nextDue     map[string]time.Time
+	lastSt      map[string]string // monitor key -> last published state
+	published   bool
+	lastPublish time.Time
 }
 
-// Run drives the loop until ctx is cancelled.
+// republishInterval bounds how often the full view is re-published even
+// without changes.
+const republishInterval = 30 * time.Second
+
+// Run drives the loop until ctx is cancelled. The first probe pass runs
+// immediately (before the ticker) so the local view is populated — and
+// published — right at startup.
 func (w *HealthWatcher) Run(ctx context.Context) {
 	interval := w.Interval
 	if interval <= 0 {
@@ -46,8 +57,7 @@ func (w *HealthWatcher) Run(ctx context.Context) {
 	if log == nil {
 		log = slog.Default()
 	}
-	w.nextDue = map[string]time.Time{}
-	w.lastSt = map[string]string{}
+	w.tickOnce(ctx, log)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -55,16 +65,59 @@ func (w *HealthWatcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if w.tick(ctx, log) {
-				w.applyEffective(ctx, log)
-			}
+			w.tickOnce(ctx, log)
 		}
 	}
+}
+
+// tickOnce is one full iteration: probe due monitors, publish the view per
+// the startup/change/periodic rule, recompute effective membership on
+// change. Exported via ProbeOnce for tests.
+func (w *HealthWatcher) tickOnce(ctx context.Context, log *slog.Logger) {
+	changed := w.tick(ctx, log)
+	w.publish(changed)
+	if changed {
+		w.applyEffective(ctx, log)
+	}
+}
+
+// publish hands the full local view to LocalSink per the
+// startup/change/periodic rule.
+func (w *HealthWatcher) publish(changed bool) {
+	if w.LocalSink == nil {
+		return
+	}
+	now := time.Now()
+	if !w.published || changed || now.Sub(w.lastPublish) >= republishInterval {
+		w.LocalSink(w.Reg.View())
+		w.published, w.lastPublish = true, now
+	}
+}
+
+// ProbeOnce performs exactly one probing iteration synchronously (tests,
+// and the daemon's startup path). Reports whether any member state changed.
+func (w *HealthWatcher) ProbeOnce(ctx context.Context) bool {
+	log := w.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	changed := w.tick(ctx, log)
+	w.publish(changed)
+	if changed {
+		w.applyEffective(ctx, log)
+	}
+	return changed
 }
 
 // tick syncs the registry, probes due monitors and reports whether any
 // member state changed.
 func (w *HealthWatcher) tick(ctx context.Context, log *slog.Logger) bool {
+	if w.nextDue == nil {
+		w.nextDue = map[string]time.Time{}
+	}
+	if w.lastSt == nil {
+		w.lastSt = map[string]string{}
+	}
 	st := w.State()
 	if st == nil {
 		return false
@@ -96,9 +149,6 @@ func (w *HealthWatcher) tick(ctx context.Context, log *slog.Logger) bool {
 				"from", prev, "to", m.State(), "reason", res.Reason)
 			changed = true
 		}
-	}
-	if w.LocalSink != nil {
-		w.LocalSink(w.Reg.View())
 	}
 	return changed
 }

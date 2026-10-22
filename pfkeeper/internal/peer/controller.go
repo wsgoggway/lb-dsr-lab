@@ -23,7 +23,7 @@ const (
 // ConfigApplier is the slice of reconcile.ConfigReconciler the controller
 // needs (interface so tests can inject a fake).
 type ConfigApplier interface {
-	Reconcile(ctx context.Context, st *state.State, revision string) (reconcile.ReconcileResult, error)
+	Reconcile(ctx context.Context, st *state.State, revision string, healthy reconcile.HealthyView) (reconcile.ReconcileResult, error)
 }
 
 // PeerState is the latest observation of the peer.
@@ -63,6 +63,9 @@ type Controller struct {
 	localView       map[string]string // "table/addr" -> UP|DOWN|INACTIVE
 	peerView        map[string]string // peer-published view, same key format
 	lastSnapshot    *pfkeeperv1.EffectiveConfigSnapshot
+	appliedHash     string // hash of the snapshot applied last (BACKUP identity)
+	appliedRev      string // revision of the snapshot applied last
+	healRequested   bool   // set by RequestHeal; next tick force-pushes
 	lastPushHash    string
 	lastPushRev     string
 	lastPushAt      time.Time
@@ -227,18 +230,20 @@ func (c *Controller) tickOnce(ctx context.Context) {
 		CheckedAt:    now,
 	}
 	c.lastReachableAt = now
+	healRequested := c.healRequested
+	c.healRequested = false
 	c.mu.Unlock()
 
 	role := Role(c.role.Role())
 	switch {
-	case role == RoleMaster && resp.GetDiverged():
+	case role == RoleMaster && (resp.GetDiverged() || healRequested):
 		c.log.Warn("peer diverged from us, re-pushing snapshot", "self", c.self, "peer_rev", resp.GetPeerRevision())
 	case role == RoleBackup && resp.GetDiverged():
 		c.log.Warn("we diverged from the master, awaiting PushConfig", "self", c.self, "our_rev", rev, "master_rev", resp.GetPeerRevision())
 	}
 
 	if role == RoleMaster {
-		c.maybePush(ctx, hash, rev, resp.GetDiverged(), now)
+		c.maybePush(ctx, hash, rev, resp.GetDiverged() || healRequested, now)
 	}
 	// Both roles publish their health view: the MASTER needs the BACKUP's
 	// view for and-consensus, and the BACKUP serves the MASTER's Diff/Status.
@@ -247,17 +252,44 @@ func (c *Controller) tickOnce(ctx context.Context) {
 	}
 }
 
+// SetAppliedSnapshot records the snapshot applied last: its hash/revision
+// become this node's SyncCheck identity on the BACKUP (the local git dir is
+// stale there by design — the BACKUP does not touch git).
+func (c *Controller) SetAppliedSnapshot(hash, rev string) {
+	c.mu.Lock()
+	c.appliedHash, c.appliedRev = hash, rev
+	c.mu.Unlock()
+}
+
+// RequestHeal makes the next loop tick force-push the snapshot to the peer
+// regardless of change/age heuristics. The PeeringService SyncCheck handler
+// on the MASTER calls it when the caller's hash does not match ours.
+func (c *Controller) RequestHeal() {
+	c.mu.Lock()
+	c.healRequested = true
+	c.mu.Unlock()
+}
+
+// SyncIdentity returns the hash/revision this node reports in SyncCheck:
+// the applied snapshot on the BACKUP, the git state on the MASTER.
+func (c *Controller) SyncIdentity(ctx context.Context) (hash, rev string) {
+	return c.selfIdentity(ctx)
+}
+
 // selfIdentity returns the config hash and revision this node reports.
-// The MASTER reads the store; the BACKUP reports its last applied snapshot
-// (it must not touch git).
+// The MASTER reads the store; the BACKUP reports the applied snapshot, and
+// only falls back to the (stale, by design) local git state when no snapshot
+// has been applied yet — the mismatch is what triggers the heal.
 func (c *Controller) selfIdentity(ctx context.Context) (hash, rev string) {
 	if Role(c.role.Role()) != RoleMaster {
 		c.mu.Lock()
-		defer c.mu.Unlock()
-		if s := c.lastSnapshot; s != nil {
-			return s.GetConfigHash(), s.GetRevision()
+		hash, rev = c.appliedHash, c.appliedRev
+		c.mu.Unlock()
+		if hash != "" || rev != "" {
+			return hash, rev
 		}
-		return "", ""
+		// No applied snapshot yet: report the stale local git state so the
+		// MASTER sees the mismatch and heals.
 	}
 	if c.store != nil {
 		if h, err := c.store.ConfigHash(ctx); err == nil {
@@ -337,13 +369,19 @@ func (c *Controller) ApplySnapshot(ctx context.Context, snap *pfkeeperv1.Effecti
 	for name, rules := range snap.GetAnchors() {
 		st.Anchors[name] = rules
 	}
-	res, err := c.applier.Reconcile(ctx, st, snap.GetRevision())
+	// healthy = nil: the snapshot is applied verbatim as desired; the
+	// BACKUP's health layer prunes unhealthy members on top of it, so the
+	// layers never fight over membership.
+	res, err := c.applier.Reconcile(ctx, st, snap.GetRevision(), nil)
 	if err != nil {
 		return res, err
 	}
 	c.mu.Lock()
 	c.lastSnapshot = snap
 	c.mu.Unlock()
+	// Record the applied snapshot as our SyncCheck identity (the peering
+	// server also calls SetAppliedSnapshot; this covers direct callers).
+	c.SetAppliedSnapshot(snap.GetConfigHash(), snap.GetRevision())
 	return res, nil
 }
 

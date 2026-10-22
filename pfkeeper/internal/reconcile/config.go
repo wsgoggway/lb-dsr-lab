@@ -61,23 +61,51 @@ func NewConfigReconciler(pf *pfctl.Client, mu *sync.Mutex, store *state.Store, a
 // AutoHeal reports the configured auto-heal flag (divergence heal on MASTER).
 func (r *ConfigReconciler) AutoHeal() bool { return r.autoHeal }
 
+// HealthyView is the health layer's opinion handed to the config layer:
+// table -> set of addresses that are UP. A table absent from the map (or a
+// nil map entirely) means "no health opinion yet — treat everyone as
+// healthy" (config mode); an address absent from a present table's set is
+// NOT healthy and must never be re-added by the config layer.
+type HealthyView map[string]map[string]bool
+
+// allowedMembers filters the desired members down to the ones the config
+// layer may apply: desired ∩ healthy. nil healthy for the table = all.
+func allowedMembers(desired []string, healthy map[string]bool) []string {
+	if healthy == nil {
+		return desired
+	}
+	out := make([]string, 0, len(desired))
+	for _, m := range desired {
+		if healthy[m] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // Reconcile detects drift and applies the desired tables and anchors.
 //
 // Semantics (v1):
-//   - each desired table is compared to the live members; TableReplace is
-//     issued ONLY on diff (or when the table is missing and desired non-empty);
-//   - a desired table with no members is not created (empty replace is
-//     allowed only for a table that already exists);
+//   - each desired table is compared to the live members against ALLOWED =
+//     desired ∩ healthy; TableReplace is issued ONLY on diff (or when the
+//     table is missing and allowed is non-empty) and carries the allowed set;
+//   - a member excluded by health (in desired, not in healthy) is NOT
+//     missing: the health layer owns add/remove of unhealthy members, so the
+//     config layer never fights it (t08 layer-conflict fix);
+//   - a desired table whose allowed set is empty is not created (empty
+//     replace is allowed only for a table that already exists);
 //   - tables present in pf but absent from the desired state are untouched;
 //   - each desired anchor (rules/*.conf) is loaded into pfkeeper/<name> when
 //     its live rules differ.
-func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revision string) (ReconcileResult, error) {
+//
+// healthy == nil means config mode: every desired member is allowed.
+func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revision string, healthy HealthyView) (ReconcileResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	res := ReconcileResult{Revision: revision}
 
-	diffs, anchorDrift, err := r.detectLocked(ctx, st)
+	diffs, anchorDrift, err := r.detectLocked(ctx, st, healthy)
 	if err != nil {
 		return res, err
 	}
@@ -86,17 +114,18 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revis
 
 	// Tables.
 	for _, td := range st.Tables {
+		allowed := allowedMembers(td.Members, healthy[td.Name])
 		current, exists, err := r.currentTable(ctx, td.Name)
 		if err != nil {
 			return res, fmt.Errorf("reconcile table %q: %w", td.Name, err)
 		}
-		if !exists && len(td.Members) == 0 {
+		if !exists && len(allowed) == 0 {
 			continue // never create an empty table
 		}
-		if exists && sameSet(current, td.Members) {
+		if exists && sameSet(current, allowed) {
 			continue // no diff -> no replace
 		}
-		if err := r.pf.TableReplace(ctx, td.Name, td.Members); err != nil {
+		if err := r.pf.TableReplace(ctx, td.Name, allowed); err != nil {
 			return res, fmt.Errorf("reconcile table %q: %w", td.Name, err)
 		}
 		res.TablesApplied++
@@ -121,28 +150,31 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revis
 }
 
 // DetectDrift reports desired-vs-live differences per desired table without
-// mutating anything (used for the drift metric and SyncCheck).
-func (r *ConfigReconciler) DetectDrift(ctx context.Context, st *state.State) ([]pfctl.TableDiff, error) {
+// mutating anything (used for the drift metric and SyncCheck). Drift is
+// computed against ALLOWED = desired ∩ healthy (see Reconcile); healthy ==
+// nil means config mode.
+func (r *ConfigReconciler) DetectDrift(ctx context.Context, st *state.State, healthy HealthyView) ([]pfctl.TableDiff, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	diffs, _, err := r.detectLocked(ctx, st)
+	diffs, _, err := r.detectLocked(ctx, st, healthy)
 	return diffs, err
 }
 
 // detectLocked computes table diffs and anchor drift; caller holds r.mu.
-func (r *ConfigReconciler) detectLocked(ctx context.Context, st *state.State) ([]pfctl.TableDiff, bool, error) {
+func (r *ConfigReconciler) detectLocked(ctx context.Context, st *state.State, healthy HealthyView) ([]pfctl.TableDiff, bool, error) {
 	var diffs []pfctl.TableDiff
 	for _, td := range st.Tables {
+		allowed := allowedMembers(td.Members, healthy[td.Name])
 		current, exists, err := r.currentTable(ctx, td.Name)
 		if err != nil {
 			return nil, false, fmt.Errorf("drift table %q: %w", td.Name, err)
 		}
 		var d pfctl.TableDiff
 		if !exists {
-			d.Missing = td.Members
+			d.Missing = allowed
 		} else {
 			want := map[string]bool{}
-			for _, m := range td.Members {
+			for _, m := range allowed {
 				want[m] = true
 			}
 			live := map[string]bool{}
@@ -152,7 +184,7 @@ func (r *ConfigReconciler) detectLocked(ctx context.Context, st *state.State) ([
 					d.Extra = append(d.Extra, m)
 				}
 			}
-			for _, m := range td.Members {
+			for _, m := range allowed {
 				if !live[m] {
 					d.Missing = append(d.Missing, m)
 				}

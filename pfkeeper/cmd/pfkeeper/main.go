@@ -110,7 +110,7 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	// Initial reconcile: converge once before serving.
 	if rev, err := store.Pull(ctx); err == nil {
 		if st, err := state.LoadState(cfg.State.Dir); err == nil {
-			if res, err := rec.Reconcile(ctx, &st, rev); err != nil {
+			if res, err := rec.Reconcile(ctx, &st, rev, nil); err != nil {
 				logger.Warn("initial reconcile failed", "error", err)
 			} else {
 				logger.Info("initial reconcile done", "revision", rev, "tables", res.TablesApplied, "anchors", res.AnchorsApplied)

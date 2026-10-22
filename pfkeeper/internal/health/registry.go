@@ -106,3 +106,28 @@ func (r *Registry) View() map[string]string {
 	}
 	return out
 }
+
+// Healthy returns the config-layer health filter: table -> set of UP
+// addresses. Tables with no UP members get no key at all — an absent key
+// (or a nil map) means "no health opinion yet, treat everyone as healthy",
+// so the config layer never fights the health layer on startup (only an
+// explicit DOWN/INACTIVE-vs-UP decision inside a present key excludes a
+// member).
+func (r *Registry) Healthy() map[string]map[string]bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := map[string]map[string]bool{}
+	for _, m := range r.monitors {
+		if m.State() != StateUP {
+			continue
+		}
+		if out[m.Table] == nil {
+			out[m.Table] = map[string]bool{}
+		}
+		out[m.Table][m.Address] = true
+	}
+	if len(out) == 0 {
+		return nil // no UP members anywhere: no opinion, config mode
+	}
+	return out
+}

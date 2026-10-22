@@ -94,6 +94,15 @@ func (s *Server) audit(actorCN, method string, params map[string]string, outcome
 	Audit(s.auditL, actorCN, method, params, outcome)
 }
 
+// healthyMap converts the monitor registry into the config-layer filter
+// (table -> UP addresses); nil registry = config mode (everyone healthy).
+func (s *Server) healthyMap() reconcile.HealthyView {
+	if s.reg == nil {
+		return nil
+	}
+	return s.reg.Healthy()
+}
+
 // loadState reads the current desired state from the store working tree.
 func (s *Server) loadState() (*state.State, string, error) {
 	st, err := state.LoadState(s.store.Dir)

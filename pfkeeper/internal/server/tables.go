@@ -111,7 +111,7 @@ func (s *Server) setTableLocal(ctx context.Context, actor string, req *pfkeeperv
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.rec.Reconcile(ctx, st, commit); err != nil {
+	if _, err := s.rec.Reconcile(ctx, st, commit, s.healthyMap()); err != nil {
 		s.audit(actor, setTableM, params, "reconcile failed: "+err.Error())
 		return nil, status.Errorf(codes.Internal, "reconcile: %v", err)
 	}
@@ -146,7 +146,7 @@ func (s *Server) addMembersLocal(ctx context.Context, actor string, req *pfkeepe
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.rec.Reconcile(ctx, st, commit); err != nil {
+	if _, err := s.rec.Reconcile(ctx, st, commit, s.healthyMap()); err != nil {
 		return nil, status.Errorf(codes.Internal, "reconcile: %v", err)
 	}
 	s.audit(actor, addMembersM, paramsOf(req.GetTable(), req.GetReason()), "ok commit="+commit)
@@ -180,7 +180,7 @@ func (s *Server) deleteMembersLocal(ctx context.Context, actor string, req *pfke
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.rec.Reconcile(ctx, st, commit); err != nil {
+	if _, err := s.rec.Reconcile(ctx, st, commit, s.healthyMap()); err != nil {
 		return nil, status.Errorf(codes.Internal, "reconcile: %v", err)
 	}
 	s.audit(actor, deleteMembersM, paramsOf(req.GetTable(), req.GetReason()), "ok commit="+commit)

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/health"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/metrics"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/peer"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/reconcile"
@@ -15,8 +16,11 @@ import (
 // counts results. The BACKUP never touches git: its config arrives via
 // PeeringService/PushConfig.
 type GitWatcher struct {
-	Store    *state.Store
-	Rec      *reconcile.ConfigReconciler
+	Store *state.Store
+	Rec   *reconcile.ConfigReconciler
+	// Reg, when set, bounds what the config layer may (re-)add: only UP
+	// members (nil registry = config mode, everyone healthy).
+	Reg      *health.Registry
 	Metrics  *metrics.Metrics
 	Role     func() string
 	Interval time.Duration // default 30s
@@ -45,6 +49,15 @@ func (w GitWatcher) Run(ctx context.Context) {
 	}
 }
 
+// healthyView converts the monitor registry into the config-layer filter
+// (nil registry = config mode).
+func (w GitWatcher) healthyView() reconcile.HealthyView {
+	if w.Reg == nil {
+		return nil
+	}
+	return w.Reg.Healthy()
+}
+
 func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
 	if w.Role != nil && peer.Role(w.Role()) != peer.RoleMaster {
 		w.Metrics.IncGitPull("skipped")
@@ -62,7 +75,7 @@ func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
 		w.Metrics.IncGitPull("error")
 		return
 	}
-	res, err := w.Rec.Reconcile(ctx, &st, rev)
+	res, err := w.Rec.Reconcile(ctx, &st, rev, w.healthyView())
 	if err != nil {
 		log.Error("reconcile failed", "revision", rev, "error", err)
 		w.Metrics.IncGitPull("error")

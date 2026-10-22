@@ -31,6 +31,9 @@ type fakeRule struct {
 type fakeRunner struct {
 	rules []fakeRule
 	delay time.Duration
+	// Capture, when set, receives every argv (and may read files referenced
+	// by it) before the rules are evaluated.
+	Capture func(joined string, args []string)
 
 	mu          sync.Mutex
 	calls       []string
@@ -40,6 +43,9 @@ type fakeRunner struct {
 
 func (f *fakeRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
 	joined := strings.Join(args, " ")
+	if f.Capture != nil {
+		f.Capture(joined, args)
+	}
 	mutating := isMutationArgv(joined)
 	if mutating {
 		cur := f.inFlight.Add(1)
@@ -123,7 +129,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 		}}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 		st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1", "10.0.0.2"}})
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -141,7 +147,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 		}}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 		st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1"}})
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -167,7 +173,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 			state.TableDef{Name: "db", Members: []string{"10.0.0.9"}},
 			state.TableDef{Name: "empty", Members: nil},
 		)
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -188,7 +194,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 		}}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 		st := testState(t, state.TableDef{Name: "web"})
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -208,7 +214,7 @@ func TestReconcileAnchors(t *testing.T) {
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 		st := testState(t)
 		st.Anchors["web"] = "pass in quick to <web>\n"
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -227,7 +233,7 @@ func TestReconcileAnchors(t *testing.T) {
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 		st := testState(t)
 		st.Anchors["web"] = "  pass in quick to <web>  \n"
-		res, err := rec.Reconcile(ctx, st, "abc123")
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -247,7 +253,7 @@ func TestDetectDriftReadOnly(t *testing.T) {
 	st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1"}})
 	st.Anchors["web"] = "pass in quick to <web>"
 
-	diffs, err := rec.DetectDrift(ctx, st)
+	diffs, err := rec.DetectDrift(ctx, st, nil)
 	if err != nil {
 		t.Fatalf("DetectDrift() error = %v", err)
 	}
@@ -415,7 +421,7 @@ func TestSharedMutexSerializes(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			_, _ = rec.Reconcile(context.Background(), st, "rev")
+			_, _ = rec.Reconcile(context.Background(), st, "rev", nil)
 		}()
 		go func() {
 			defer wg.Done()
@@ -459,6 +465,164 @@ func TestApplyMainConf(t *testing.T) {
 		// must be the validation one ("-n -f"), none a real load.
 		if fr.countCalls(" -f ")-fr.countCalls("-n -f") != 0 {
 			t.Fatal("LoadMainConf must not run after failed validation")
+		}
+	})
+}
+
+// TestAndConsensusEmptyPeerView: a MISSING peer entry is not a DOWN vote —
+// the effective set degrades to the local view (t08 regression).
+func TestAndConsensusEmptyPeerView(t *testing.T) {
+	ctx := context.Background()
+	fr := &fakeRunner{rules: []fakeRule{
+		{match: "-t web -T show", out: "10.0.0.1\n10.0.0.2\n"},
+	}}
+	hc, err := NewHealthController(pfctl.NewClient("/sbin/pfctl", fr), nil, "and")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := []string{"10.0.0.1", "10.0.0.2"}
+	local := map[string]string{"10.0.0.1": health.StateUP, "10.0.0.2": health.StateUP}
+
+	// Peer reachable but its view has not arrived yet (empty map).
+	res, err := hc.ApplyEffective(ctx, "web", desired, local, nil, true)
+	if err != nil {
+		t.Fatalf("ApplyEffective() error = %v", err)
+	}
+	if len(res.Added) != 0 || len(res.Removed) != 0 || fr.countCalls("-T delete") != 0 {
+		t.Fatalf("res = %+v, want effective == local view (no removals)", res)
+	}
+
+	// Mixed local health with empty peer view: only the locally-DOWN member
+	// is removed, the healthy one survives.
+	fr2 := &fakeRunner{rules: []fakeRule{
+		{match: "-t web -T show", out: "10.0.0.1\n10.0.0.2\n"},
+	}}
+	hc2, _ := NewHealthController(pfctl.NewClient("/sbin/pfctl", fr2), nil, "and")
+	local2 := map[string]string{"10.0.0.1": health.StateUP, "10.0.0.2": health.StateDOWN}
+	res2, err := hc2.ApplyEffective(ctx, "web", desired, local2, nil, true)
+	if err != nil {
+		t.Fatalf("ApplyEffective() error = %v", err)
+	}
+	if len(res2.Removed) != 1 || res2.Removed[0] != "10.0.0.2" || fr2.countCalls("-T delete 10.0.0.2") != 1 {
+		t.Fatalf("res = %+v, want only the locally-DOWN member removed", res2)
+	}
+
+	// Explicit peer DOWN still removes under and-consensus.
+	res3, err := hc.ApplyEffective(ctx, "web", desired, local,
+		map[string]string{"10.0.0.2": health.StateDOWN}, true)
+	if err != nil {
+		t.Fatalf("ApplyEffective() error = %v", err)
+	}
+	if len(res3.Removed) != 1 || res3.Removed[0] != "10.0.0.2" {
+		t.Fatalf("res = %+v, want explicit peer DOWN to remove the member", res3)
+	}
+}
+
+// TestDriftRespectsHealthy (t08 layer conflict): a health-excluded member is
+// never re-added by the config layer; extra members are removed; nil healthy
+// keeps the old config-mode behaviour.
+func TestDriftRespectsHealthy(t *testing.T) {
+	desired := []string{"10.0.0.21", "10.0.0.22"}
+	// Live pf has the health-excluded .21 still present plus a stray .99.
+	live := "10.0.0.21\n10.0.0.22\n10.0.0.99\n"
+
+	t.Run("health-excluded member is removed, not re-added", func(t *testing.T) {
+		var replaced string
+		fr := &fakeRunner{
+			rules: []fakeRule{{match: "-t web -T show", out: live}},
+			Capture: func(joined string, args []string) {
+				if strings.Contains(joined, "-T replace") {
+					b, err := os.ReadFile(args[len(args)-1])
+					if err != nil {
+						t.Errorf("read replace payload: %v", err)
+						return
+					}
+					replaced = string(b)
+				}
+			},
+		}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		healthy := HealthyView{"web": {"10.0.0.22": true}} // .21 is DOWN
+
+		diffs, err := rec.DetectDrift(context.Background(), st, healthy)
+		if err != nil {
+			t.Fatalf("DetectDrift() error = %v", err)
+		}
+		if len(diffs) != 1 {
+			t.Fatalf("diffs = %+v, want one web diff", diffs)
+		}
+		for _, m := range diffs[0].Missing {
+			if m == "10.0.0.21" {
+				t.Fatal("health-excluded member reported as missing (would be re-added)")
+			}
+		}
+		// extra = current - allowed: the still-present .21 plus the stray .99
+		// are both slated for removal; .21 must NOT be in missing.
+		if len(diffs[0].Extra) != 2 || diffs[0].Extra[0] != "10.0.0.21" || diffs[0].Extra[1] != "10.0.0.99" {
+			t.Fatalf("extra = %+v, want 10.0.0.21+10.0.0.99 (current minus allowed)", diffs[0].Extra)
+		}
+
+		res, err := rec.Reconcile(context.Background(), st, "rev", healthy)
+		if err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if res.TablesApplied != 1 || !res.Drift {
+			t.Fatalf("res = %+v, want 1 apply with drift", res)
+		}
+		if replaced != "10.0.0.22\n" {
+			t.Fatalf("replace payload = %q, want only the healthy member", replaced)
+		}
+	})
+
+	t.Run("nil healthy keeps config mode", func(t *testing.T) {
+		var replaced string
+		fr := &fakeRunner{
+			rules: []fakeRule{{match: "-t web -T show", out: live}},
+			Capture: func(joined string, args []string) {
+				if strings.Contains(joined, "-T replace") {
+					b, err := os.ReadFile(args[len(args)-1])
+					if err != nil {
+						t.Errorf("read replace payload: %v", err)
+						return
+					}
+					replaced = string(b)
+				}
+			},
+		}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		if _, err := rec.Reconcile(context.Background(), st, "rev", nil); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if replaced != "10.0.0.21\n10.0.0.22\n" {
+			t.Fatalf("replace payload = %q, want the full desired set (config mode)", replaced)
+		}
+	})
+
+	t.Run("table without UP members has no health opinion", func(t *testing.T) {
+		// healthy has no "web" key at all -> config mode for that table.
+		var replaced string
+		fr := &fakeRunner{
+			rules: []fakeRule{{match: "-t web -T show", out: "10.0.0.21\n"}},
+			Capture: func(joined string, args []string) {
+				if strings.Contains(joined, "-T replace") {
+					b, err := os.ReadFile(args[len(args)-1])
+					if err != nil {
+						t.Errorf("read replace payload: %v", err)
+						return
+					}
+					replaced = string(b)
+				}
+			},
+		}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		if _, err := rec.Reconcile(context.Background(), st, "rev", HealthyView{"other": {"1.1.1.1": true}}); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if replaced != "10.0.0.21\n10.0.0.22\n" {
+			t.Fatalf("replace payload = %q, want full desired set (absent key = no opinion)", replaced)
 		}
 	})
 }

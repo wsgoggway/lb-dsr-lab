@@ -11,21 +11,24 @@ mkdir -p "$OUT"
 openssl req -x509 -newkey ed25519 -nodes -keyout "$OUT/ca.key" -out "$OUT/ca.crt" \
   -days "$DAYS" -subj "/CN=pfkeeper-lab-ca" 2>/dev/null
 
-issue() { # issue <name> <cn> <role>
-  local name=$1 cn=$2 role=$3
+issue() { # issue <name> <cn> <role> [ip_sans...]
+  local name=$1 cn=$2 role=$3; shift 3
+  local ip_sans=""
+  for ip in "$@"; do ip_sans="$ip_sans,IP:$ip"; done
   openssl req -newkey ed25519 -nodes -keyout "$OUT/$name.key" -out "$OUT/$name.csr" \
     -subj "/CN=$cn/O=pfkeeper-$role" 2>/dev/null
   openssl x509 -req -in "$OUT/$name.csr" -CA "$OUT/ca.crt" -CAkey "$OUT/ca.key" \
     -CAcreateserial -out "$OUT/$name.crt" -days "$DAYS" \
-    -extfile <(printf "subjectAltName=DNS:%s,URI:pfkeeper://role/%s\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth,serverAuth" "$cn" "$role") \
+    -extfile <(printf "subjectAltName=DNS:%s,URI:pfkeeper://role/%s%s\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth,serverAuth" "$cn" "$role" "$ip_sans") \
     2>/dev/null
   rm -f "$OUT/$name.csr"
-  echo "issued: $name (CN=$cn role=$role)"
+  echo "issued: $name (CN=$cn role=$role ips=$*)"
 }
 
-# node identities - role "node" may call PeeringService only
-issue lb1 lb1 node
-issue lb2 lb2 node
+# node identities - role "node" may call PeeringService only.
+# IP SANs are required: peers dial each other by net-sync IP.
+issue lb1 lb1 node 10.0.100.1 192.168.100.11
+issue lb2 lb2 node 10.0.100.2 192.168.100.12
 # client identities - role from the CN
 issue client-admin admin admin
 issue client-operator operator operator

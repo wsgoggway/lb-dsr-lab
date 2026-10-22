@@ -13,7 +13,8 @@ import (
 )
 
 // PushConfig applies an effective-config snapshot received from the MASTER
-// (peer listener, node certificates only).
+// (peer listener, node certificates only) and records it as the node's
+// SyncCheck identity.
 func (s *Server) PushConfig(ctx context.Context, snap *pfkeeperv1.EffectiveConfigSnapshot) (*emptypb.Empty, error) {
 	if s.ctl == nil {
 		return nil, status.Error(codes.FailedPrecondition, "peering is not configured on this node")
@@ -21,6 +22,9 @@ func (s *Server) PushConfig(ctx context.Context, snap *pfkeeperv1.EffectiveConfi
 	if _, err := s.ctl.ApplySnapshot(ctx, snap); err != nil {
 		return nil, status.Errorf(codes.Internal, "apply snapshot: %v", err)
 	}
+	// The applied snapshot (not the stale local git dir) is what this BACKUP
+	// reports in SyncCheck from now on.
+	s.ctl.SetAppliedSnapshot(snap.GetConfigHash(), snap.GetRevision())
 	return &emptypb.Empty{}, nil
 }
 
@@ -38,22 +42,39 @@ func (s *Server) PublishHealth(ctx context.Context, view *pfkeeperv1.HealthView)
 	return &emptypb.Empty{}, nil
 }
 
-// SyncCheck compares the caller's config hash/revision with ours.
+// SyncCheck compares the caller's config hash/revision with ours. Our own
+// identity is the applied snapshot on a BACKUP and the git state on the
+// MASTER (Controller.SyncIdentity). A mismatch answers diverged=true and,
+// when we are the MASTER, requests an immediate heal push.
 func (s *Server) SyncCheck(ctx context.Context, req *pfkeeperv1.SyncCheckRequest) (*pfkeeperv1.SyncCheckResponse, error) {
-	ownHash, ownRev := "", ""
-	if s.store != nil {
-		if h, err := s.store.ConfigHash(ctx); err == nil {
-			ownHash = h
-		}
-		if r, err := s.store.HeadRevision(ctx); err == nil {
-			ownRev = r
-		}
+	ownHash, ownRev := s.ownIdentity(ctx)
+	diverged := req.GetConfigHash() != ownHash
+	if diverged && s.ctl != nil && s.role() == string(peer.RoleMaster) {
+		s.ctl.RequestHeal()
 	}
 	return &pfkeeperv1.SyncCheckResponse{
-		Diverged:       req.GetConfigHash() != "" && req.GetConfigHash() != ownHash,
+		Diverged:       diverged,
 		PeerRevision:   ownRev,
 		PeerConfigHash: ownHash,
 	}, nil
+}
+
+// ownIdentity is this node's config identity: the controller's reported
+// identity (applied snapshot on BACKUP / store on MASTER) with a plain store
+// fallback when peering is not wired (tests, single-node).
+func (s *Server) ownIdentity(ctx context.Context) (hash, rev string) {
+	if s.ctl != nil {
+		return s.ctl.SyncIdentity(ctx)
+	}
+	if s.store != nil {
+		if h, err := s.store.ConfigHash(ctx); err == nil {
+			hash = h
+		}
+		if r, err := s.store.HeadRevision(ctx); err == nil {
+			rev = r
+		}
+	}
+	return hash, rev
 }
 
 // redirectMethods are the client mutations a BACKUP may proxy to the MASTER

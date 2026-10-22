@@ -97,3 +97,38 @@ func TestRegistryForceCheck(t *testing.T) {
 		t.Fatal("ForceCheck() of unknown member: error = nil, want error")
 	}
 }
+
+func TestRegistryHealthy(t *testing.T) {
+	r := NewRegistry()
+	// No monitors -> no opinion -> nil (config mode).
+	if got := r.Healthy(); got != nil {
+		t.Fatalf("Healthy() on empty registry = %v, want nil", got)
+	}
+
+	up := r.Register("web", "10.0.0.21", testSpec())
+	r.Register("web", "10.0.0.22", testSpec())
+	r.Register("db", "10.0.0.30", testSpec())
+	up.Observe(Result{Passed: true, CheckedAt: time.Now()}) // rises to UP
+	// .22 and db stay INACTIVE (no opinion).
+
+	got := r.Healthy()
+	// Only tables with an UP member get a key; .22 has no opinion so far.
+	if len(got) != 1 || got["web"]["10.0.0.21"] != true {
+		t.Fatalf("Healthy() = %v, want only web/10.0.0.21", got)
+	}
+	if _, ok := got["web"]["10.0.0.22"]; ok {
+		t.Fatal("INACTIVE member must not be in the healthy set")
+	}
+
+	// INACTIVE-only table has no key: config mode for it.
+	if _, ok := got["db"]; ok {
+		t.Fatal("table without UP members must have no key")
+	}
+
+	// Explicit DOWN removes the member from the healthy set.
+	up.Observe(Result{Passed: false, Reason: "timeout", CheckedAt: time.Now()})
+	got = r.Healthy()
+	if _, ok := got["web"]; ok {
+		t.Fatalf("Healthy() after DOWN = %v, want no web key", got)
+	}
+}

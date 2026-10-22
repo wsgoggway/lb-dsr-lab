@@ -66,7 +66,7 @@ func (s *Server) Diff(ctx context.Context, _ *emptypb.Empty) (*pfkeeperv1.DiffRe
 	if err != nil {
 		return nil, err
 	}
-	diffs, err := s.rec.DetectDrift(ctx, st)
+	diffs, err := s.rec.DetectDrift(ctx, st, s.healthyMap())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "detect drift: %v", err)
 	}

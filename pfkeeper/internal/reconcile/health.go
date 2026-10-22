@@ -57,12 +57,16 @@ func (h *HealthController) Consensus() string { return h.consensus }
 // healthWatcher and the peer's PublishHealth view respectively):
 //
 //	local — only the local view decides;
-//	and   — member is up iff local UP AND peer UP;
+//	and   — member is up iff local UP AND peer not-DOWN;
 //	or    — member is up iff local UP OR peer UP.
 //
-// When the peer is unreachable its view is untrusted and the consensus
-// degrades to the local view for every mode (documented behaviour for "and"
-// per the design; applied uniformly to "or").
+// Two degradation rules (documented behaviour):
+//
+//   - when the PEER ITSELF is unreachable its view is untrusted and the
+//     consensus degrades to the local view for every mode;
+//   - a MISSING peerView entry is not a DOWN vote: the peer has no opinion
+//     yet (its view has not arrived), so the member degrades to the local
+//     view. Only an explicit peer state=DOWN counts as down.
 //
 // Effective is bounded by desired: members absent from desired are never
 // added, and live members outside desired are left to the config layer.
@@ -114,14 +118,15 @@ func (h *HealthController) ApplyEffective(ctx context.Context, table string, des
 	return res, nil
 }
 
-// healthy applies the consensus mode to one member; an unreachable peer
-// degrades every mode to the local view.
+// healthy applies the consensus mode to one member. An unreachable peer
+// degrades every mode to the local view; a MISSING peer entry counts as UP
+// (no peer opinion yet), only an explicit DOWN votes the member down.
 func (h *HealthController) healthy(member string, localView, peerView map[string]string, peerReachable bool) bool {
 	localUp := localView[member] == health.StateUP
 	if !peerReachable {
 		return localUp
 	}
-	peerUp := peerView[member] == health.StateUP
+	peerUp := peerView[member] != health.StateDOWN
 	switch h.consensus {
 	case "and":
 		return localUp && peerUp

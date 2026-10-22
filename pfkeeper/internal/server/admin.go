@@ -43,7 +43,7 @@ func (s *Server) syncLocal(ctx context.Context, actor string) (*pfkeeperv1.SyncR
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "load state: %v", err)
 	}
-	res, err := s.rec.Reconcile(ctx, &st, rev)
+	res, err := s.rec.Reconcile(ctx, &st, rev, s.healthyMap())
 	if err != nil {
 		s.audit(actor, syncM, nil, "reconcile failed: "+err.Error())
 		return nil, status.Errorf(codes.Internal, "reconcile: %v", err)
@@ -82,7 +82,7 @@ func (s *Server) rollbackLocal(ctx context.Context, actor, commit string) (*pfke
 	if err != nil {
 		rev = commit
 	}
-	if _, err := s.rec.Reconcile(ctx, &st, rev); err != nil {
+	if _, err := s.rec.Reconcile(ctx, &st, rev, s.healthyMap()); err != nil {
 		return nil, status.Errorf(codes.Internal, "reconcile: %v", err)
 	}
 	s.audit(actor, rollbackM, map[string]string{"commit": commit}, "ok revision="+rev)

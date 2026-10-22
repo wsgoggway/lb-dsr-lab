@@ -30,7 +30,7 @@ type fakeApplier struct {
 	err       error
 }
 
-func (f *fakeApplier) Reconcile(_ context.Context, st *state.State, rev string) (reconcile.ReconcileResult, error) {
+func (f *fakeApplier) Reconcile(_ context.Context, st *state.State, rev string, _ reconcile.HealthyView) (reconcile.ReconcileResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -51,6 +51,8 @@ type fakePeer struct {
 	mu         sync.Mutex
 	diverged   bool
 	fail       bool
+	masterHash string // when set, diverged = req hash != masterHash
+	masterRev  string
 	pushes     []*pfkeeperv1.EffectiveConfigSnapshot
 	healths    []*pfkeeperv1.HealthView
 	syncChecks []*pfkeeperv1.SyncCheckRequest
@@ -102,7 +104,11 @@ func (f *fakePeer) SyncCheck(_ context.Context, req *pfkeeperv1.SyncCheckRequest
 		return nil, errors.New("peer down")
 	}
 	f.syncChecks = append(f.syncChecks, req)
-	return &pfkeeperv1.SyncCheckResponse{Diverged: f.diverged, PeerRevision: "peerrev1", PeerConfigHash: "hash1"}, nil
+	diverged := f.diverged
+	if f.masterHash != "" {
+		diverged = req.GetConfigHash() != f.masterHash
+	}
+	return &pfkeeperv1.SyncCheckResponse{Diverged: diverged, PeerRevision: "peerrev1", PeerConfigHash: f.masterHash}, nil
 }
 
 func (f *fakePeer) RedirectWrite(_ context.Context, req *pfkeeperv1.RedirectWriteRequest) (*pfkeeperv1.RedirectWriteResponse, error) {
@@ -407,5 +413,112 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestSyncCheckIdentityUsesAppliedSnapshot: the BACKUP's SyncCheck identity
+// is the applied snapshot, not the stale local git hash.
+func TestSyncCheckIdentityUsesAppliedSnapshot(t *testing.T) {
+	ctx := context.Background()
+	fp := &fakePeer{masterHash: "masterhash", masterRev: "masterrev"}
+	cli := startPeer(t, fp)
+	defer cli.Close()
+	applier := &fakeApplier{}
+
+	// Scenario A: applied snapshot == master hash -> no divergence reported.
+	cApplied := newController(t, "BACKUP", cli, seedStore(t), applier, nil)
+	cApplied.SetAppliedSnapshot("masterhash", "masterrev")
+	cApplied.SyncOnce(ctx)
+	if st := cApplied.PeerStatus(); st.Diverged {
+		t.Fatalf("BACKUP with matching applied snapshot: status = %+v, want not diverged", st)
+	}
+	fp.mu.Lock()
+	checksA := len(fp.syncChecks)
+	fp.mu.Unlock()
+	if checksA != 1 || fp.syncChecks[0].GetConfigHash() != "masterhash" || fp.syncChecks[0].GetRevision() != "masterrev" {
+		t.Fatalf("first SyncCheck request = %+v, want applied snapshot identity", fp.syncChecks[0])
+	}
+
+	// Scenario B: no applied snapshot yet -> the stale LOCAL git hash is
+	// sent, the master answers diverged=true (its view differs).
+	cStale := newController(t, "BACKUP", cli, seedStore(t), applier, nil)
+	cStale.SyncOnce(ctx)
+	if st := cStale.PeerStatus(); !st.Diverged {
+		t.Fatalf("BACKUP without applied snapshot: status = %+v, want diverged", st)
+	}
+	fp.mu.Lock()
+	last := fp.syncChecks[len(fp.syncChecks)-1]
+	fp.mu.Unlock()
+	if last.GetConfigHash() == "" || last.GetConfigHash() == "masterhash" {
+		t.Fatalf("stale BACKUP sent hash %q, want the local git hash", last.GetConfigHash())
+	}
+
+	// Scenario C: MASTER whose SyncCheck reports divergence re-pushes
+	// (heal), and RequestHeal forces a push even without divergence.
+	// Legacy fake mode (explicit diverged flag): the master sends its own
+	// store hash, which the fake must not compare against anything.
+	fp2 := &fakePeer{}
+	cli2 := startPeer(t, fp2)
+	defer cli2.Close()
+	cMaster := newController(t, "MASTER", cli2, seedStore(t), applier, nil)
+	cMaster.SyncOnce(ctx) // initial push
+	fp2.mu.Lock()
+	pushes := len(fp2.pushes)
+	fp2.mu.Unlock()
+	if pushes != 1 {
+		t.Fatalf("initial pushes = %d, want 1", pushes)
+	}
+	fp2.setDiverged(true)
+	cMaster.SyncOnce(ctx) // heal push
+	fp2.mu.Lock()
+	pushes = len(fp2.pushes)
+	fp2.mu.Unlock()
+	if pushes != 2 {
+		t.Fatalf("pushes after divergence = %d, want 2 (heal)", pushes)
+	}
+	fp2.setDiverged(false)
+	cMaster.SyncOnce(ctx) // no change, no divergence -> no push
+	fp2.mu.Lock()
+	pushes = len(fp2.pushes)
+	fp2.mu.Unlock()
+	if pushes != 2 {
+		t.Fatalf("pushes without divergence/change = %d, want 2", pushes)
+	}
+	cMaster.RequestHeal()
+	cMaster.SyncOnce(ctx) // requested heal -> push
+	fp2.mu.Lock()
+	pushes = len(fp2.pushes)
+	fp2.mu.Unlock()
+	if pushes != 3 {
+		t.Fatalf("pushes after RequestHeal = %d, want 3", pushes)
+	}
+}
+
+// TestApplySnapshotRecordsIdentity: applying a snapshot records its hash/rev
+// as the SyncCheck identity (server PushConfig hook does the same).
+func TestApplySnapshotRecordsIdentity(t *testing.T) {
+	ctx := context.Background()
+	fp := &fakePeer{masterHash: "masterhash", masterRev: "masterrev"}
+	cli := startPeer(t, fp)
+	defer cli.Close()
+	c := newController(t, "BACKUP", cli, seedStore(t), &fakeApplier{}, nil)
+
+	if _, err := c.ApplySnapshot(ctx, &pfkeeperv1.EffectiveConfigSnapshot{
+		Revision:   "masterrev",
+		ConfigHash: "masterhash",
+		Tables:     map[string]string{"web": "10.0.0.1"},
+	}); err != nil {
+		t.Fatalf("ApplySnapshot() error = %v", err)
+	}
+	c.SyncOnce(ctx)
+	fp.mu.Lock()
+	last := fp.syncChecks[len(fp.syncChecks)-1]
+	fp.mu.Unlock()
+	if last.GetConfigHash() != "masterhash" || last.GetRevision() != "masterrev" {
+		t.Fatalf("identity after apply = (%q, %q), want (masterhash, masterrev)",
+			last.GetConfigHash(), last.GetRevision())
+	}
+	if st := c.PeerStatus(); st.Diverged {
+		t.Fatalf("status = %+v, want not diverged after heal", st)
 	}
 }

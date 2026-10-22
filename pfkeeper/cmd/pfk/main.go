@@ -266,6 +266,18 @@ func rulesCmd(c *cli, args []string) error {
 			return nil
 		}
 		return fmt.Errorf("invalid: %s", resp.GetError())
+	case "diff":
+		resp, err := c.rules.Diff(c.ctx, &emptypb.Empty{})
+		if err != nil {
+			return err
+		}
+		for _, d := range resp.GetTables() {
+			if len(d.GetMissing()) > 0 || len(d.GetExtra()) > 0 {
+				fmt.Printf("%s diverged: missing=[%s] extra=[%s]\n",
+					d.GetTable(), strings.Join(d.GetMissing(), ","), strings.Join(d.GetExtra(), ","))
+			}
+		}
+		fmt.Printf("diverged=%v\n", resp.GetDiverged())
 	case "apply-main":
 		dry := len(rest) > 0 && rest[0] == "-dry-run"
 		resp, err := c.rules.ApplyMainConf(c.ctx, &pfkeeperv1.ApplyMainConfRequest{DryRun: dry})
