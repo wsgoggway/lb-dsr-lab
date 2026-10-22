@@ -1,0 +1,23 @@
+node: lb1
+pfctl_bin: /sbin/pfctl
+carp_interface: vtnet0
+state:
+  dir: /var/db/pfkeeper/state
+  remote: ssh://lab@192.168.100.10/var/db/pfkeeper-state.git
+  branch: main
+  key: /var/db/pfkeeper/deploy.key
+sync:
+  mode: and
+  health_consensus: and
+  lag_alert: 30s
+  auto_heal: true
+listen:
+  client: 0.0.0.0:8443
+  peer: 0.0.0.0:8444
+  metrics: 0.0.0.0:9100
+tls:
+  cert: /usr/local/etc/pfkeeper/lb1.crt
+  key: /usr/local/etc/pfkeeper/lb1.key
+  ca: /usr/local/etc/pfkeeper/ca.crt
+peer:
+  endpoint: 10.0.100.2:8444
