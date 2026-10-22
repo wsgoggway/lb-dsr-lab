@@ -1,0 +1,28 @@
+#!/bin/sh
+# pfkeeper rc.d script - FreeBSD 14, daemon(8)-supervised Go binary.
+# Install: install -m 555 pfkeeper/rc.d/pfkeeper /etc/rc.d/pfkeeper
+#          sysrc pfkeeper_enable=YES pfkeeper_config="..." pfkeeper_peer="..."
+# NOTE: runs as root by design (pfctl requires /dev/pf; there is no
+#       unprivileged pf access on FreeBSD).
+
+. /etc/rc.subr
+
+name=pfkeeper
+rcvar=pfkeeper_enable
+
+command="/usr/sbin/daemon"
+procname="/usr/local/bin/pfkeeper"
+pidfile="/var/run/pfkeeper.pid"
+
+load_rc_config $name
+
+: ${pfkeeper_enable:="NO"}
+: ${pfkeeper_config:="/usr/local/etc/pfkeeper/pfkeeper.yaml"}
+: ${pfkeeper_flags:=""}
+: ${pfkeeper_log:="/var/log/pfkeeper.log"}
+
+pfkeeper_chdir="/var/db/pfkeeper"
+command_args="-r -f -P ${pidfile} -o ${pfkeeper_log} \
+  ${procname} -config ${pfkeeper_config} ${pfkeeper_flags}"
+
+run_rc_command "$1"
