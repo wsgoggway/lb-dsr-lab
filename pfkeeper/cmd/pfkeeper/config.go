@@ -18,7 +18,7 @@ type Config struct {
 		Dir    string `yaml:"dir"`    // working tree
 		Remote string `yaml:"remote"` // origin URL (empty for single-node lab)
 		Branch string `yaml:"branch"` // default main
-		Key    string `yaml:"key"`    // deploy key for GIT_SSH_COMMAND
+		Key    string `yaml:"key"`    // deploy key (SSH auth via go-git)
 	} `yaml:"state"`
 
 	Sync struct {

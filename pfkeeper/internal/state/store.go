@@ -1,80 +1,159 @@
 package state
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 // Store is a service-owned git working tree holding the desired state.
-// All git access goes through exec with `-C <Dir>` (no go-git): the working
-// tree belongs to pfkeeper, so Pull is a deterministic fetch+reset --hard
-// against the remote branch (chosen over `git pull --rebase` exactly because
-// the tree is never locally dirty on purpose and reset is idempotent).
+// All git access goes through go-git (the FreeBSD lab guests have no git
+// binary); ctx parameters are kept for interface stability — go-git v5 does
+// not take contexts, so long network ops are bounded by transport timeouts
+// instead.
+//
+// Pull is a deterministic fetch+hard-reset against the remote branch: the
+// working tree belongs to pfkeeper and is never dirty on purpose.
 type Store struct {
 	Dir    string // working tree (created by Ensure when missing)
-	Remote string // origin URL (file path or ssh:)
+	Remote string // origin URL (file path or ssh://)
 	Branch string // branch to track and push (e.g. "main")
-	// KeyPath, when set, becomes the deploy key of GIT_SSH_COMMAND:
-	// "ssh -i <KeyPath> -o StrictHostKeyChecking=accept-new".
+	// KeyPath, when set and the remote is ssh://, is the deploy key used for
+	// authentication (ed25519 and friends, parsed by x/crypto/ssh).
 	KeyPath string
 }
 
-// gitIdentity is stamped into the repo at Ensure; the human actor goes into
-// the commit message, not the committer fields.
-const (
-	identityName  = "pfkeeper"
-	identityEmail = "pfkeeper@localhost"
-)
+// shortLen matches `git rev-parse --short` for revision strings.
+const shortLen = 7
 
-// exitCode reports the process exit code if err wraps *exec.ExitError; ok is
-// false for any other error kind.
-func exitCode(err error) (code int, ok bool) {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode(), true
+// open opens the working tree repository.
+func (s *Store) open() (*git.Repository, error) {
+	r, err := git.PlainOpen(s.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("store: open %s: %w", s.Dir, err)
 	}
-	return 0, false
+	return r, nil
 }
 
-// runGit executes git -C <Dir> <args...> and returns stdout.
-func (s *Store) runGit(ctx context.Context, args ...string) (string, error) {
-	return s.runGitEnv(ctx, nil, args...)
+// auth builds the transport credentials for the remote: an SSH public-key
+// auth from KeyPath for ssh:// remotes (user from the URL, "git" fallback),
+// none for local paths and plain http(s) (lab).
+func (s *Store) auth() (transport.AuthMethod, error) {
+	if s.KeyPath == "" || !strings.HasPrefix(s.Remote, "ssh://") {
+		return nil, nil
+	}
+	user := "git"
+	if u, err := url.Parse(s.Remote); err == nil && u.User != nil && u.User.Username() != "" {
+		user = u.User.Username()
+	}
+	auth, err := gitssh.NewPublicKeysFromFile(user, s.KeyPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("store: ssh auth from %s: %w", s.KeyPath, err)
+	}
+	return auth, nil
 }
 
-// runGitEnv is runGit with extra environment variables.
-func (s *Store) runGitEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
-	full := append([]string{"-C", s.Dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", full...)
-	env := append(os.Environ(), extraEnv...)
-	if s.KeyPath != "" {
-		env = append(env, "GIT_SSH_COMMAND=ssh -i "+s.KeyPath+" -o StrictHostKeyChecking=accept-new")
+// fetchRefSpec is the standard mirror of remote heads into remote-tracking
+// refs.
+const fetchRefSpec = "+refs/heads/*:refs/remotes/origin/*"
+
+// fetch fetches origin; empty/unchanged remotes are not errors. Tolerant
+// governs whether an unreachable/empty remote is swallowed (fresh init) or
+// reported (steady-state sync).
+func (s *Store) fetch(r *git.Repository, tolerant bool) error {
+	if s.Remote == "" {
+		return nil
 	}
-	cmd.Env = env
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("git %s: %w: %s",
-			strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	auth, err := s.auth()
+	if err != nil {
+		if tolerant {
+			return nil
+		}
+		return err
 	}
-	return stdout.String(), nil
+	err = r.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+		Force:      true,
+		RefSpecs:   []config.RefSpec{config.RefSpec(fetchRefSpec)},
+	})
+	switch {
+	case err == nil, errors.Is(err, git.NoErrAlreadyUpToDate):
+		return nil
+	case errors.Is(err, transport.ErrEmptyRemoteRepository), isNoMatchingRefSpec(err):
+		// Remote exists but carries no refs at all.
+		return nil
+	case tolerant:
+		// Fresh init against an empty/unreachable remote: start empty.
+		return nil
+	default:
+		return fmt.Errorf("store: fetch origin: %w", err)
+	}
 }
 
-// Ensure makes Dir a ready-to-use clone of Remote:
-//   - Dir/.git missing: git init -b <branch>, add origin, fetch, checkout -B
-//     <branch> origin/<branch> (tolerating a missing remote branch);
-//   - otherwise: plain fetch to refresh remote-tracking refs.
-//
-// In both cases the local git identity is stamped for later commits.
+// isNoMatchingRefSpec reports go-git's "remote has no matching refs" fetch
+// result (empty remote).
+func isNoMatchingRefSpec(err error) bool {
+	var noMatch *git.NoMatchingRefSpecError
+	return errors.As(err, &noMatch)
+}
+
+// remoteBranchRef resolves origin/<branch>; ok=false when the remote branch
+// does not exist (fresh/empty remote).
+func (s *Store) remoteBranchRef(r *git.Repository) (plumbing.Hash, bool, error) {
+	ref, err := r.ResolveRevision(plumbing.Revision("refs/remotes/origin/" + s.Branch))
+	if err != nil || ref.IsZero() {
+		return plumbing.ZeroHash, false, nil
+	}
+	return *ref, true, nil
+}
+
+// resetHard hard-resets the worktree (and the current branch pointer) to hash.
+// On an unborn HEAD (fresh init) it creates the branch at the hash instead —
+// go-git's Reset cannot move a reference that does not exist yet.
+func (s *Store) resetHard(r *git.Repository, hash plumbing.Hash) error {
+	wt, err := r.Worktree()
+	if err != nil {
+		return fmt.Errorf("store: worktree: %w", err)
+	}
+	if _, err := r.Head(); err != nil {
+		// Unborn HEAD: point the tracked branch at the fetched commit and
+		// check it out (this go-git forbids Branch+Hash in one Checkout).
+		branch := plumbing.NewBranchReferenceName(s.Branch)
+		if err := r.Storer.SetReference(plumbing.NewHashReference(branch, hash)); err != nil {
+			return fmt.Errorf("store: branch %s: %w", s.Branch, err)
+		}
+		if err := wt.Checkout(&git.CheckoutOptions{Branch: branch, Force: true}); err != nil {
+			return fmt.Errorf("store: checkout %s: %w", hash.String()[:shortLen], err)
+		}
+		return nil
+	}
+	if err := wt.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: hash}); err != nil {
+		return fmt.Errorf("store: reset --hard %s: %w", hash.String()[:shortLen], err)
+	}
+	return nil
+}
+
+// Ensure makes Dir a ready-to-use checkout of Remote:
+//   - Dir/.git missing: PlainInit on Branch, create origin, fetch and
+//     hard-reset to origin/<branch> when the branch exists; an empty or
+//     unreachable remote leaves an empty (allowed) initial state;
+//   - otherwise: fetch to refresh remote-tracking refs.
 func (s *Store) Ensure(ctx context.Context) error {
 	if s.Dir == "" {
 		return fmt.Errorf("store: Dir is empty")
@@ -86,113 +165,186 @@ func (s *Store) Ensure(ctx context.Context) error {
 		if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 			return fmt.Errorf("store: mkdir %s: %w", s.Dir, err)
 		}
-		if _, err := s.runGit(ctx, "init", "-b", s.Branch); err != nil {
-			return fmt.Errorf("store: %w", err)
+		r, err := git.PlainInitWithOptions(s.Dir, &git.PlainInitOptions{
+			InitOptions: git.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName(s.Branch)},
+		})
+		if err != nil {
+			return fmt.Errorf("store: init: %w", err)
 		}
 		if s.Remote != "" {
-			if _, err := s.runGit(ctx, "remote", "add", "origin", s.Remote); err != nil {
-				return fmt.Errorf("store: %w", err)
+			if _, err := r.CreateRemote(&config.RemoteConfig{
+				Name:  "origin",
+				URLs:  []string{s.Remote},
+				Fetch: []config.RefSpec{config.RefSpec(fetchRefSpec)},
+			}); err != nil {
+				return fmt.Errorf("store: remote origin: %w", err)
 			}
-			// A fresh remote may have no branch yet; tolerate fetch failure.
-			_, _ = s.runGit(ctx, "fetch", "origin")
-			_, _ = s.runGit(ctx, "checkout", "-B", s.Branch, "origin/"+s.Branch)
+			if err := s.fetch(r, true); err != nil {
+				return err
+			}
+			if ref, ok, _ := s.remoteBranchRef(r); ok {
+				if err := s.resetHard(r, ref); err != nil {
+					return err
+				}
+			}
 		}
-	} else {
-		if _, err := s.runGit(ctx, "fetch", "origin"); err != nil {
-			return fmt.Errorf("store: %w", err)
-		}
+		return nil
 	}
-	for _, cfg := range [][2]string{{"user.name", identityName}, {"user.email", identityEmail}} {
-		if _, err := s.runGit(ctx, "config", cfg[0], cfg[1]); err != nil {
-			return fmt.Errorf("store: set %s: %w", cfg[0], err)
-		}
+	r, err := s.open()
+	if err != nil {
+		return err
 	}
-	return nil
+	return s.fetch(r, false)
 }
 
-// Pull fast-forwards the working tree to origin/<branch> via fetch + reset
-// --hard (deterministic; the tree is service-owned) and returns the short
-// revision now checked out. A missing origin/<branch> keeps the current HEAD.
+// Pull fast-forwards the working tree to origin/<branch> via fetch + hard
+// reset and returns the short revision now checked out. A missing remote
+// branch keeps the local state ("", nil on a fresh empty tree).
 func (s *Store) Pull(ctx context.Context) (string, error) {
-	if _, err := s.runGit(ctx, "fetch", "origin"); err != nil {
+	r, err := s.open()
+	if err != nil {
+		return "", err
+	}
+	if err := s.fetch(r, false); err != nil {
 		return "", fmt.Errorf("store pull: %w", err)
 	}
-	if _, err := s.runGit(ctx, "rev-parse", "--verify", "-q", "origin/"+s.Branch); err != nil {
-		// Remote branch not there (yet): keep local state untouched.
+	ref, ok, err := s.remoteBranchRef(r)
+	if err != nil {
+		return "", fmt.Errorf("store pull: %w", err)
+	}
+	if !ok {
 		return s.HeadRevision(ctx)
 	}
-	if _, err := s.runGit(ctx, "reset", "--hard", "origin/"+s.Branch); err != nil {
+	if err := s.resetHard(r, ref); err != nil {
 		return "", fmt.Errorf("store pull: %w", err)
 	}
 	return s.HeadRevision(ctx)
 }
 
-// CommitAndPush stages paths, commits "actor: message" (skipping the commit
-// when nothing is staged) and pushes with --force-with-lease. On a push
-// rejection it rebases on origin once and retries the push a single time;
-// a second failure is returned. Returns the short commit pushed (or HEAD
-// revision when nothing new was committed).
+// CommitAndPush stages paths, commits them with the actor as author
+// (name=actor, email=actor@pfkeeper; skipped when nothing is staged) and
+// pushes the branch (fast-forward only). A push rejection rebases our work
+// onto origin via one Pull and retries exactly once; a second failure is
+// returned. Returns the short commit now at HEAD.
 func (s *Store) CommitAndPush(ctx context.Context, actor, message string, paths ...string) (string, error) {
 	if len(paths) == 0 {
 		return "", fmt.Errorf("store commit: no paths given")
 	}
-	addArgs := append([]string{"add", "--"}, paths...)
-	if _, err := s.runGit(ctx, addArgs...); err != nil {
-		return "", fmt.Errorf("store commit: %w", err)
+	if actor == "" {
+		actor = "unknown"
 	}
-	if _, err := s.runGit(ctx, "diff", "--cached", "--quiet"); err != nil {
-		// exit 1 = there are staged changes; anything else is a real error.
-		if code, ok := exitCode(err); !ok || code != 1 {
-			return "", fmt.Errorf("store commit: %w", err)
-		}
-		commitMsg := fmt.Sprintf("%s: %s", actor, message)
-		if _, err := s.runGit(ctx, "commit", "-m", commitMsg); err != nil {
-			return "", fmt.Errorf("store commit: %w", err)
-		}
-	}
-	rev, err := s.HeadRevision(ctx)
+	r, err := s.open()
 	if err != nil {
 		return "", err
 	}
-	if err := s.pushWithRetry(ctx); err != nil {
+	wt, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("store commit: %w", err)
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(filepath.Join(s.Dir, p)); err == nil {
+			if _, err := wt.Add(p); err != nil {
+				return "", fmt.Errorf("store commit: add %s: %w", p, err)
+			}
+			continue
+		}
+		// Path gone from the worktree: drop it from the index when tracked.
+		if _, err := wt.Remove(p); err != nil {
+			continue // was never tracked; nothing to do
+		}
+	}
+
+	status, err := wt.Status()
+	if err != nil {
+		return "", fmt.Errorf("store commit: status: %w", err)
+	}
+	if !status.IsClean() {
+		if _, err := wt.Commit(message, &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  actor,
+				Email: actor + "@pfkeeper",
+				When:  time.Now(),
+			},
+		}); err != nil {
+			return "", fmt.Errorf("store commit: %w", err)
+		}
+	}
+	if err := s.pushWithRetry(ctx, r); err != nil {
 		return "", err
 	}
-	return rev, nil
+	return s.HeadRevision(ctx)
 }
 
-// pushWithRetry pushes with lease; on rejection rebases once and retries.
-func (s *Store) pushWithRetry(ctx context.Context) error {
-	_, err := s.runGit(ctx, "push", "--force-with-lease", "origin", s.Branch)
-	if err == nil {
+// pushWithRetry pushes the branch; on a non-fast-forward rejection it pulls
+// (hard reset re-applies our committed work onto origin) and retries once.
+func (s *Store) pushWithRetry(ctx context.Context, r *git.Repository) error {
+	auth, _ := s.auth()
+	spec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", s.Branch, s.Branch))
+	err := r.Push(&git.PushOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+		RefSpecs:   []config.RefSpec{spec},
+	})
+	if err == nil || errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return nil
 	}
-	// Rebase onto what the remote has, then retry exactly once.
-	if _, rerr := s.runGit(ctx, "pull", "--rebase", "origin", s.Branch); rerr != nil {
-		return fmt.Errorf("store push rejected and rebase failed: %w (push error: %v)", rerr, err)
+	if !isNonFastForward(err) {
+		return fmt.Errorf("store push: %w", err)
 	}
-	if _, err2 := s.runGit(ctx, "push", "--force-with-lease", "origin", s.Branch); err2 != nil {
-		return fmt.Errorf("store push after rebase: %w", err2)
+	// Rebase onto what the remote has: our commit is already in the object
+	// store and re-applied by the hard reset, then we retry exactly once.
+	if _, perr := s.Pull(ctx); perr != nil {
+		return fmt.Errorf("store push rejected and pull failed: %w (push error: %v)", perr, err)
+	}
+	if err2 := r.Push(&git.PushOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+		RefSpecs:   []config.RefSpec{spec},
+	}); err2 != nil && !errors.Is(err2, git.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("store push after pull: %w", err2)
 	}
 	return nil
 }
 
-// CheckoutCommit moves the branch to commit (`git checkout -B <branch>
-// <commit>`), i.e. a rollback. Nothing is pushed here; the next mutation
-// force-pushes the rewound branch.
+// isNonFastForward matches go-git's push rejection (typed error or message).
+func isNonFastForward(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "non-fast-forward")
+}
+
+// CheckoutCommit moves the branch to commit (rollback: hard reset + branch
+// pointer). Nothing is pushed here; the next mutation pushes the rewound
+// branch.
 func (s *Store) CheckoutCommit(ctx context.Context, commit string) error {
-	if _, err := s.runGit(ctx, "checkout", "-B", s.Branch, commit); err != nil {
+	r, err := s.open()
+	if err != nil {
+		return err
+	}
+	rev, err := r.ResolveRevision(plumbing.Revision(commit))
+	if err != nil {
+		return fmt.Errorf("store checkout %q: %w", commit, err)
+	}
+	if err := s.resetHard(r, *rev); err != nil {
 		return fmt.Errorf("store checkout %q: %w", commit, err)
 	}
 	return nil
 }
 
-// HeadRevision returns the short hash of the current HEAD commit.
+// HeadRevision returns the short hash of the current HEAD commit, "" (nil)
+// when HEAD is unborn (fresh empty state).
 func (s *Store) HeadRevision(ctx context.Context) (string, error) {
-	out, err := s.runGit(ctx, "rev-parse", "--short", "HEAD")
+	_ = ctx
+	r, err := s.open()
 	if err != nil {
 		return "", fmt.Errorf("store head: %w", err)
 	}
-	return strings.TrimSpace(out), nil
+	head, err := r.Head()
+	if err != nil {
+		if errors.Is(err, plumbing.ErrReferenceNotFound) || strings.Contains(err.Error(), "reference not found") {
+			return "", nil
+		}
+		return "", fmt.Errorf("store head: %w", err)
+	}
+	return head.Hash().String()[:shortLen], nil
 }
 
 // ConfigHash returns sha256 over the sorted (path, content) stream of
