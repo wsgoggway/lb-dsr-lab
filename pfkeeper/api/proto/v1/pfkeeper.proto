@@ -148,7 +148,7 @@ message ForceCheckRequest { string table = 1; string address = 2; }
 // ---- StatusService (client 8443) ----
 
 service StatusService {
-  rpc PfStats(google.protobuf.Empty) returns (PfStats);
+  rpc GetPfStats(google.protobuf.Empty) returns (PfStats); // method renamed from PfStats: a method name cannot shadow the PfStats message type in protoc scope resolution
   rpc CarpState(google.protobuf.Empty) returns (CarpStateResponse);
   rpc PeerState(google.protobuf.Empty) returns (PeerStateResponse);
   rpc Version(google.protobuf.Empty) returns (VersionResponse);
@@ -183,34 +183,39 @@ message RollbackResponse { string revision = 1; }
 
 // ---- PeeringService (peer 8444; node certificates only) ----
 
-service PeeringService {
-  // EffectiveConfigSnapshot is what the MASTER pushes to the BACKUP.
-  message EffectiveConfigSnapshot {
-    string revision = 1;          // git commit the config came from
-    string config_hash = 2;       // sha256 over the applied desired state
-    map<string, string> tables = 3;  // table name -> members, one per line
-    map<string, string> anchors = 4; // anchor name -> rules text
-  }
-  // PublishHealth carries the sender's per-member health view (consensus modes).
-  message HealthView {
-    string node = 1;
-    repeated MemberHealth members = 2;
-  }
-  // SyncCheck compares hashes; the requester learns whether it diverged.
-  message SyncCheckRequest { string config_hash = 1; string revision = 2; }
-  message SyncCheckResponse {
-    bool diverged = 1;
-    string peer_revision = 2;
-    string peer_config_hash = 3;
-  }
-  // RedirectWrite lets the BACKUP proxy a mutation to the MASTER.
-  message RedirectWriteRequest {
-    string method = 1;    // e.g. "TableService/SetTable"
-    bytes payload = 2;    // marshalled request
-    string actor_cn = 3;  // original client CN
-  }
-  message RedirectWriteResponse { bytes payload = 4; }
+// EffectiveConfigSnapshot is what the MASTER pushes to the BACKUP.
+// NOTE: declared at file level because proto3 forbids message definitions
+// inside service blocks; wire shape is unchanged.
+message EffectiveConfigSnapshot {
+  string revision = 1;             // git commit the config came from
+  string config_hash = 2;          // sha256 over the applied desired state
+  map<string, string> tables = 3;  // table name -> members, one per line
+  map<string, string> anchors = 4; // anchor name -> rules text
+}
 
+// PublishHealth carries the sender's per-member health view (consensus modes).
+message HealthView {
+  string node = 1;
+  repeated MemberHealth members = 2;
+}
+
+// SyncCheck compares hashes; the requester learns whether it diverged.
+message SyncCheckRequest { string config_hash = 1; string revision = 2; }
+message SyncCheckResponse {
+  bool diverged = 1;
+  string peer_revision = 2;
+  string peer_config_hash = 3;
+}
+
+// RedirectWrite lets the BACKUP proxy a mutation to the MASTER.
+message RedirectWriteRequest {
+  string method = 1;   // e.g. "TableService/SetTable"
+  bytes payload = 2;   // marshalled request
+  string actor_cn = 3; // original client CN
+}
+message RedirectWriteResponse { bytes payload = 4; }
+
+service PeeringService {
   rpc PushConfig(EffectiveConfigSnapshot) returns (google.protobuf.Empty);
   rpc PublishHealth(HealthView) returns (google.protobuf.Empty);
   rpc SyncCheck(SyncCheckRequest) returns (SyncCheckResponse);

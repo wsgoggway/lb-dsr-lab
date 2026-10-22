@@ -8,10 +8,10 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 .PHONY: gen build build-freebsd test lint clean certs
 
-gen: ## regenerate gRPC code from api/proto
+gen: ## regenerate gRPC code from api/proto into api/pfkeeperv1 (per go_package)
 	cd api && PATH="$$PATH:$(shell go env GOPATH)/bin" protoc \
-	  --go_out=. --go_opt=paths=source_relative \
-	  --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+	  --go_out=.. --go_opt=module=github.com/wsgoggway/lb-dsr-lab/pfkeeper \
+	  --go-grpc_out=.. --go-grpc_opt=module=github.com/wsgoggway/lb-dsr-lab/pfkeeper \
 	  proto/v1/pfkeeper.proto
 
 build: ## build host binaries into bin/
