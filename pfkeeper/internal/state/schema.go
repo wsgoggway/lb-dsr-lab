@@ -67,6 +67,23 @@ type State struct {
 	MainConf string            // conf/pf.conf content, "" when absent
 }
 
+// WriteTable marshals td to YAML and writes it to tables/<name>.yaml under
+// dir (the desired-state mutation format used by TableService).
+func WriteTable(dir string, td TableDef) error {
+	b, err := yaml.Marshal(td)
+	if err != nil {
+		return fmt.Errorf("marshal table %q: %w", td.Name, err)
+	}
+	path := filepath.Join(dir, "tables", td.Name+".yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir tables: %w", err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
 // LoadState reads and parses the whole state directory. Missing optional
 // parts (no tables/, no rules/, no conf/pf.conf) are tolerated; a missing
 // config.yaml yields the zero Config. Parse errors name the offending file.

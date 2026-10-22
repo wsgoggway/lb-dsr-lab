@@ -1,0 +1,130 @@
+package server
+
+import (
+	"context"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	pfkeeperv1 "github.com/wsgoggway/lb-dsr-lab/pfkeeper/api/pfkeeperv1"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/peer"
+)
+
+// PushConfig applies an effective-config snapshot received from the MASTER
+// (peer listener, node certificates only).
+func (s *Server) PushConfig(ctx context.Context, snap *pfkeeperv1.EffectiveConfigSnapshot) (*emptypb.Empty, error) {
+	if s.ctl == nil {
+		return nil, status.Error(codes.FailedPrecondition, "peering is not configured on this node")
+	}
+	if _, err := s.ctl.ApplySnapshot(ctx, snap); err != nil {
+		return nil, status.Errorf(codes.Internal, "apply snapshot: %v", err)
+	}
+	return &emptypb.Empty{}, nil
+}
+
+// PublishHealth stores the peer's per-member health view (consumed by the
+// MASTER's health-consensus evaluation in the healthWatcher).
+func (s *Server) PublishHealth(ctx context.Context, view *pfkeeperv1.HealthView) (*emptypb.Empty, error) {
+	if s.ctl == nil {
+		return nil, status.Error(codes.FailedPrecondition, "peering is not configured on this node")
+	}
+	converted := make(map[string]string, len(view.GetMembers()))
+	for _, mh := range view.GetMembers() {
+		converted[peer.LocalViewKey(mh.GetTable(), mh.GetAddress())] = mh.GetState()
+	}
+	s.ctl.SetPeerView(converted)
+	return &emptypb.Empty{}, nil
+}
+
+// SyncCheck compares the caller's config hash/revision with ours.
+func (s *Server) SyncCheck(ctx context.Context, req *pfkeeperv1.SyncCheckRequest) (*pfkeeperv1.SyncCheckResponse, error) {
+	ownHash, ownRev := "", ""
+	if s.store != nil {
+		if h, err := s.store.ConfigHash(ctx); err == nil {
+			ownHash = h
+		}
+		if r, err := s.store.HeadRevision(ctx); err == nil {
+			ownRev = r
+		}
+	}
+	return &pfkeeperv1.SyncCheckResponse{
+		Diverged:       req.GetConfigHash() != "" && req.GetConfigHash() != ownHash,
+		PeerRevision:   ownRev,
+		PeerConfigHash: ownHash,
+	}, nil
+}
+
+// redirectMethods are the client mutations a BACKUP may proxy to the MASTER
+// via RedirectWrite; everything else is refused.
+var redirectMethods = map[string]func(*Server, context.Context, string, []byte) ([]byte, error){
+	setTableM:      dispatchSetTable,
+	addMembersM:    dispatchAddMembers,
+	deleteMembersM: dispatchDeleteMembers,
+	syncM:          dispatchSync,
+}
+
+func dispatchSetTable(s *Server, ctx context.Context, actor string, payload []byte) ([]byte, error) {
+	req := &pfkeeperv1.SetTableRequest{}
+	if err := proto.Unmarshal(payload, req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad payload: %v", err)
+	}
+	resp, err := s.setTableLocal(ctx, actor, req)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(resp)
+}
+
+func dispatchAddMembers(s *Server, ctx context.Context, actor string, payload []byte) ([]byte, error) {
+	req := &pfkeeperv1.AddMembersRequest{}
+	if err := proto.Unmarshal(payload, req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad payload: %v", err)
+	}
+	resp, err := s.addMembersLocal(ctx, actor, req)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(resp)
+}
+
+func dispatchDeleteMembers(s *Server, ctx context.Context, actor string, payload []byte) ([]byte, error) {
+	req := &pfkeeperv1.DeleteMembersRequest{}
+	if err := proto.Unmarshal(payload, req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad payload: %v", err)
+	}
+	resp, err := s.deleteMembersLocal(ctx, actor, req)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(resp)
+}
+
+func dispatchSync(s *Server, ctx context.Context, actor string, _ []byte) ([]byte, error) {
+	resp, err := s.syncLocal(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(resp)
+}
+
+// RedirectWrite lets a BACKUP proxy an allowed client mutation to us (the
+// MASTER). The original client CN travels in actor_cn and is kept in the
+// audit trail.
+func (s *Server) RedirectWrite(ctx context.Context, req *pfkeeperv1.RedirectWriteRequest) (*pfkeeperv1.RedirectWriteResponse, error) {
+	method := req.GetMethod()
+	dispatch, ok := redirectMethods[method]
+	if !ok {
+		return nil, status.Errorf(codes.PermissionDenied, "method %q is not redirectable", method)
+	}
+	actor := req.GetActorCn()
+	if actor == "" {
+		actor = "unknown"
+	}
+	payload, err := dispatch(s, ctx, actor, req.GetPayload())
+	if err != nil {
+		return nil, err
+	}
+	return &pfkeeperv1.RedirectWriteResponse{Payload: payload}, nil
+}

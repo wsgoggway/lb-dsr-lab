@@ -59,14 +59,16 @@ type Controller struct {
 	TickInterval time.Duration
 	PushInterval time.Duration
 
-	mu           sync.Mutex
-	localView    map[string]string // "table/addr" -> UP|DOWN|INACTIVE
-	lastSnapshot *pfkeeperv1.EffectiveConfigSnapshot
-	lastPushHash string
-	lastPushRev  string
-	lastPushAt   time.Time
-	lastWarn     time.Time
-	peer         PeerState
+	mu              sync.Mutex
+	localView       map[string]string // "table/addr" -> UP|DOWN|INACTIVE
+	peerView        map[string]string // peer-published view, same key format
+	lastSnapshot    *pfkeeperv1.EffectiveConfigSnapshot
+	lastPushHash    string
+	lastPushRev     string
+	lastPushAt      time.Time
+	lastWarn        time.Time
+	lastReachableAt time.Time
+	peer            PeerState
 }
 
 // NewController wires the peering controller. peerAddr is kept for
@@ -83,6 +85,7 @@ func NewController(role RoleSource, self, peerAddr string, cli *PeerClient, appl
 		TickInterval: DefaultTickInterval,
 		PushInterval: DefaultPushInterval,
 		localView:    map[string]string{},
+		peerView:     map[string]string{},
 	}
 }
 
@@ -103,6 +106,59 @@ func (c *Controller) SetLocalView(view map[string]string) {
 	c.mu.Lock()
 	c.localView = cp
 	c.mu.Unlock()
+}
+
+// SetPeerView stores the peer-published health view (PeeringService/
+// PublishHealth handler on the receiving side).
+func (c *Controller) SetPeerView(view map[string]string) {
+	cp := make(map[string]string, len(view))
+	for k, v := range view {
+		cp[k] = v
+	}
+	c.mu.Lock()
+	c.peerView = cp
+	c.mu.Unlock()
+}
+
+// PeerView returns the last peer-published health view ("" map when none).
+func (c *Controller) PeerView() map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]string, len(c.peerView))
+	for k, v := range c.peerView {
+		out[k] = v
+	}
+	return out
+}
+
+// Status is the peer observation surfaced through StatusService/PeerState.
+type Status struct {
+	Reachable    bool
+	PeerRevision string
+	Diverged     bool
+	Degraded     bool
+	LagSeconds   int64 // seconds since the peer was last seen reachable
+	CheckedAt    time.Time
+}
+
+// Snapshot returns the latest peer observation for StatusService.
+func (c *Controller) Snapshot() Status {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lag := int64(0)
+	if c.lastReachableAt.IsZero() {
+		lag = -1 // never seen reachable
+	} else if !c.peer.Reachable {
+		lag = int64(time.Since(c.lastReachableAt).Seconds())
+	}
+	return Status{
+		Reachable:    c.peer.Reachable,
+		PeerRevision: c.peer.PeerRevision,
+		Diverged:     c.peer.Diverged,
+		Degraded:     c.peer.Degraded,
+		LagSeconds:   lag,
+		CheckedAt:    c.peer.CheckedAt,
+	}
 }
 
 // PeerStatus returns the latest peer observation (safe for concurrent reads).
@@ -137,6 +193,10 @@ func (c *Controller) Run(ctx context.Context) {
 	}
 }
 
+// SyncOnce performs exactly one peering iteration synchronously (used by
+// tests and by the daemon for an immediate first check).
+func (c *Controller) SyncOnce(ctx context.Context) { c.tickOnce(ctx) }
+
 // tickOnce performs one peering iteration. Tests call it directly instead of
 // waiting on tickers, so the library itself never sleeps.
 func (c *Controller) tickOnce(ctx context.Context) {
@@ -166,6 +226,7 @@ func (c *Controller) tickOnce(ctx context.Context) {
 		Diverged:     resp.GetDiverged(),
 		CheckedAt:    now,
 	}
+	c.lastReachableAt = now
 	c.mu.Unlock()
 
 	role := Role(c.role.Role())
