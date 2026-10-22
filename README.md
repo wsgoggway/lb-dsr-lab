@@ -200,3 +200,10 @@ the lab key. Fixes, in order of preference:
 Required kernel modules: `carp.ko` and `pfsync.ko` are NOT in the FreeBSD
 GENERIC kernel - they are loaded by cloud-init (`kldload`) and persisted via
 `kld_list`. Without them the CARP alias fails with "Protocol not supported".
+
+
+## Отчёты (reports/)
+
+- [2026-10-22 — полный отчёт по фазам 1–2](reports/2026-10-22-full-report-phases-1-2.md) — архитектура, CARP+pfsync, отказоустойчивость.
+- [2026-10-22 — пакетные доказательства](reports/2026-10-22-packet-capture-evidence.md) — аннотированные tcpdump-дампы DSR/NAT, pf-стейты.
+- [2026-10-22 — отчёт об испытаниях](reports/2026-10-22-test-report-phases-1-2.md) — методика, матрица t00–t07, метрики, дефекты.
