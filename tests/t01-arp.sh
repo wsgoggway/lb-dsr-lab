@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # t01-arp.sh - who answers ARP for the VIP?
-# From the client VM, arping the VIP: ONLY lb1 (52:54:00:aa:00:11) may answer.
+# From the client VM, arping the VIP: ONLY the CARP virtual MAC
+# (00:00:5e:00:01:01) may answer - the pair owns the VIP at L2.
 # If a backend MAC (00:21 / 00:22) shows up, the rs arp_ignore sysctls are
 # broken and DSR would collapse at L2.
 set -euo pipefail
@@ -20,8 +21,8 @@ echo "$OUT" | head -6
 MACS=$(printf '%s\n' "$OUT" | grep -Eio '([0-9a-f]{2}:){5}[0-9a-f]{2}' | tr 'A-F' 'a-f' | sort -u)
 echo "ARP responders for $LAB_VIP: ${MACS:-none}"
 
-if ! grep -q '52:54:00:aa:00:11' <<<"$MACS"; then
-  test_fail "lb1 MAC (52:54:00:aa:00:11) did not answer ARP for the VIP"
+if ! grep -qi '00:00:5e:00:01:01' <<<"$MACS"; then
+  test_fail "CARP virtual MAC (00:00:5e:00:01:01) did not answer ARP for the VIP"
 fi
 for BAD in 52:54:00:aa:00:21 52:54:00:aa:00:22; do
   if grep -q "$BAD" <<<"$MACS"; then
@@ -29,4 +30,4 @@ for BAD in 52:54:00:aa:00:21 52:54:00:aa:00:22; do
   fi
 done
 
-test_pass "VIP ARP answered only by lb1 (backends keep the VIP hidden on lo)"
+test_pass "VIP ARP answered only by the CARP virtual MAC (backends keep the VIP hidden on lo)"
