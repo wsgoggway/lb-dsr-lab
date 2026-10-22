@@ -14,10 +14,23 @@ import (
 // DefaultBin is the canonical location of pfctl on FreeBSD.
 const DefaultBin = "/sbin/pfctl"
 
-// tableNameRe restricts table and anchor names passed to pfctl. A name is a
-// distinct argv element (no shell involved), but a leading "-" would still be
-// parsed by pfctl as an option flag, so names are anchored to safe charset.
-var tableNameRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,31}$`)
+// TableDiff is a desired-vs-live difference for one table (produced by the
+// M4 reconciler; the gRPC layer maps it onto pfkeeperv1.TableDiff).
+type TableDiff struct {
+	Table   string
+	Missing []string // in desired, not in pf
+	Extra   []string // in pf, not in desired
+}
+
+// tableNameRe restricts table names passed to pfctl; anchorNameRe allows the
+// same plus "/"-separated hierarchy (pf anchors nest, e.g. pfkeeper/web).
+// A name is a distinct argv element (no shell involved), but a leading "-"
+// would still be parsed by pfctl as an option flag, so names are anchored to
+// a safe charset.
+var (
+	tableNameRe  = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,31}$`)
+	anchorNameRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,31}(/[a-zA-Z][a-zA-Z0-9_-]{0,31})*$`)
+)
 
 // Client is a thin typed wrapper around the pfctl binary.
 //
@@ -76,7 +89,11 @@ func (c *Client) run(ctx context.Context, args ...string) (string, error) {
 
 // checkName validates a table/anchor name before it reaches the argv.
 func checkName(kind, name string) error {
-	if !tableNameRe.MatchString(name) {
+	re := tableNameRe
+	if kind == "anchor" {
+		re = anchorNameRe
+	}
+	if !re.MatchString(name) {
 		return fmt.Errorf("invalid pf %s name %q", kind, name)
 	}
 	return nil
