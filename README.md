@@ -179,3 +179,24 @@ sudo tcpdump -ni vtnet0 'tcp[tcpflags] & (tcp-syn|tcp-ack) == (tcp-syn|tcp-ack)'
   (не более 10 ошибок), затем lb1 поднимается обратно (`virsh start lb1`).
 - Статус пары: `just carp` (carp-строка `ifconfig vtnet0` + `pfsync0` на
   обоих узлах).
+
+
+## Troubleshooting (nuageinit first-boot flake)
+
+FreeBSD's native cloud-init (nuageinit) is flaky on first boot: it may stop
+after the `users` stage (lab user created, but write_files/runcmd skipped).
+Symptoms: the VM has no static IP, no CARP alias, root SSH does not accept
+the lab key. Fixes, in order of preference:
+
+1. `just down && just up` for the affected node (wipe + fresh first boot) -
+   usually enough; the flake is intermittent.
+2. Deterministic repair without a wipe: stop the node
+   (`virsh destroy lb1`), hot-attach its disk volume to the healthy node
+   (`virsh attach-device lb2 disk.xml --live`), fix `/etc/rc.conf`,
+   `/etc/pf.conf`, `/root/.ssh/authorized_keys`, `/etc/ssh/sshd_config`
+   (PermitRootLogin yes) directly on the UFS mount, detach, start.
+   The full procedure is documented in the project journal.
+
+Required kernel modules: `carp.ko` and `pfsync.ko` are NOT in the FreeBSD
+GENERIC kernel - they are loaded by cloud-init (`kldload`) and persisted via
+`kld_list`. Without them the CARP alias fails with "Protocol not supported".
