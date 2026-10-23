@@ -1,0 +1,60 @@
+{
+  "uid": "pfkeeper",
+  "title": "pfkeeper",
+  "tags": ["lb-dsr-lab"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {"list": [
+    {
+      "name": "instance",
+      "type": "query",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "definition": "label_values(pfkeeper_service_probability, instance)",
+      "query": {"query": "label_values(pfkeeper_service_probability, instance)", "refId": "StandardVariableQuery"},
+      "includeAll": true,
+      "multi": true,
+      "refresh": 1,
+      "current": {"selected": true, "text": ["All"], "value": ["$__all"]}
+    }
+  ]},
+  "panels": [
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Service probability per member %", "id": 1, "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "percent", "min": 0}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_service_probability{instance=~\"$instance\"}", "legendFormat": "{{node}} {{service}} <- {{member}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "stat", "title": "CARP role (MASTER)", "id": 2, "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "MASTER", "color": "green"}, "0": {"text": "BACKUP", "color": "blue"}}}]}, "overrides": []},
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (node, instance) (pfkeeper_carp_role{role=\"MASTER\",instance=~\"$instance\"})", "legendFormat": "{{node}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Member health (table webs)", "id": 3, "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "up", "color": "green"}, "0": {"text": "down", "color": "red"}}}], "min": 0, "max": 1}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_member_health{instance=~\"$instance\"}", "legendFormat": "{{node}} {{table}} {{address}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Peer reachable / diverged", "id": 4, "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_peer_reachable{instance=~\"$instance\"}", "legendFormat": "{{node}} reachable", "refId": "A"},
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_peer_diverged{instance=~\"$instance\"}", "legendFormat": "{{node}} diverged", "refId": "B"}
+     ]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Peer lag (pfsync)", "id": 5, "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_peer_lag_seconds{instance=~\"$instance\"}", "legendFormat": "{{node}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Config drift", "id": 6, "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+     "fieldConfig": {"defaults": {"min": 0}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pfkeeper_drift{instance=~\"$instance\"}", "legendFormat": "{{node}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Apply / probe / git-pull rate", "id": 7, "gridPos": {"x": 16, "y": 16, "w": 8, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pfkeeper_apply_total{instance=~\"$instance\"}[5m])", "legendFormat": "{{instance}} apply", "refId": "A"},
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pfkeeper_probe_failures_total{instance=~\"$instance\"}[5m])", "legendFormat": "{{instance}} probe-fail", "refId": "B"},
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pfkeeper_git_pull_total{instance=~\"$instance\"}[5m])", "legendFormat": "{{instance}} git-pull", "refId": "C"}
+     ]}
+  ]
+}

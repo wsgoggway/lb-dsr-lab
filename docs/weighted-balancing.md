@@ -170,3 +170,4 @@ members:
 | MEDIUM | Непersist-таблица, на которую не ссылается правило основного сета, исчезает при `pfctl -f`; реконсилер не может её пересоздать (эвристика не матчит ответ pfctl «Table does not exist.»). |
 | MEDIUM | deploy.sh при протухшем daemon-pidfile оставляет зомби-процессы daemon(8) (двойной старт, «bind: address already in use»). |
 | LOW | Вечный drift=1 якоря: сравнение идёт с нормализованным выводом `pfctl -sr`, sameText никогда не истинно — якорь перезаливается каждый тик (не ломает работу, но шумит). |
+| LOW | BACKUP не экспортирует `pfkeeper_service_probability` и `pfkeeper_apply_total` — публикация рендера и IncApply живут только на MASTER-пути (заметено при подключении Prometheus: 2 серии вместо 4). |

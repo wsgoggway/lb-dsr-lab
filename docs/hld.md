@@ -13,6 +13,7 @@ Direct Server Return toward Linux nginx backends. Phase 2 adds a CARP pair
 | lb1     | FreeBSD 14.5      | L3/L4 balancer, CARP MASTER   | 192.168.100.11 + VIP .200|
 | lb2     | FreeBSD 14.5      | L3/L4 balancer, CARP BACKUP   | 192.168.100.12 + VIP .200|
 | rs1/rs2 | Debian 13 + nginx | real servers (VIP on lo)      | .21 / .22 + VIP/32 on lo |
+| host    | CachyOS + Docker  | monitoring: Prometheus, Grafana (lab-prometheus, lab-grafana) | 127.0.0.1:9090 / :3000 |
 
 Balancers carry a second NIC on `net-sync` (isolated L2 bridge `virbr-sync`,
 no host IP, no DHCP): lb1 = 10.0.100.1/30, lb2 = 10.0.100.2/30 - pfsync only.
@@ -63,6 +64,32 @@ flowchart LR
   never mixes with the data path.
 - TCP offloads are disabled on every NIC so host-side tcpdump shows real
   packet boundaries.
+
+## Observability
+
+The host runs the monitoring stack (`monitoring/run.sh`): Prometheus and
+Grafana in host-networked containers. Exporters live on the lab nodes:
+pfkeeper :9100 + node_exporter :9101 + pf_exporter :9102 on the balancers,
+node_exporter :9100 + nginx-vts :9913 on the backends - 10 scrape targets,
+15s interval, static labels `cluster=lb-dsr-lab` / `role=lb|backend`.
+Four Grafana dashboards; details in `docs/observability.md`.
+
+```mermaid
+flowchart LR
+    subgraph lab["net-dsr nodes"]
+        LB1["lb1 .11<br>pfkeeper :9100<br>node :9101<br>pf :9102"]
+        LB2["lb2 .12<br>pfkeeper :9100<br>node :9101<br>pf :9102"]
+        RS1["rs1 .21<br>node :9100<br>nginx-vts :9913"]
+        RS2["rs2 .22<br>node :9100<br>nginx-vts :9913"]
+    end
+    PROM["lab-prometheus<br>Prometheus :9090 (host)"]
+    GRAF["lab-grafana<br>Grafana :3000 (host)"]
+    LB1 -->|"scrape 15s"| PROM
+    LB2 -->|"scrape 15s"| PROM
+    RS1 -->|"scrape 15s"| PROM
+    RS2 -->|"scrape 15s"| PROM
+    PROM -->|"datasource"| GRAF
+```
 
 ## Phase 2 (built)
 

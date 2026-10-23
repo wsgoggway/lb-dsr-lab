@@ -1,0 +1,49 @@
+{
+  "uid": "nginx-vts",
+  "title": "nginx backends (VTS)",
+  "tags": ["lb-dsr-lab"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {"list": [
+    {
+      "name": "instance",
+      "type": "query",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "definition": "label_values(nginx_vts_server_info, instance)",
+      "query": {"query": "label_values(nginx_vts_server_info, instance)", "refId": "StandardVariableQuery"},
+      "includeAll": true,
+      "multi": true,
+      "refresh": 1,
+      "current": {"selected": true, "text": ["All"], "value": ["$__all"]}
+    }
+  ]},
+  "panels": [
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Request rate by code per backend", "id": 1, "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(nginx_vts_server_requests{host=\"*\",instance=~\"$instance\"}[1m])", "legendFormat": "{{instance}} {{code}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Total request rate by code", "id": 2, "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by (code) (rate(nginx_vts_server_requests{host=\"*\"}[1m]))", "legendFormat": "{{code}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "HTTP code share %", "id": 3, "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"stacking": {"mode": "percent"}}}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "100 * sum by (code) (rate(nginx_vts_server_requests{host=\"*\",instance=~\"$instance\"}[5m])) / sum(rate(nginx_vts_server_requests{host=\"*\",instance=~\"$instance\"}[5m]))", "legendFormat": "{{code}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Connections by status", "id": 4, "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nginx_vts_server_connections{instance=~\"$instance\"}", "legendFormat": "{{instance}} {{status}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Traffic in/out", "id": 5, "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(nginx_vts_server_bytes{host=\"*\",instance=~\"$instance\"}[1m])", "legendFormat": "{{instance}} {{direction}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "stat", "title": "Avg request time (ms)", "id": 6, "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nginx_vts_server_requestMsec{host=\"*\",instance=~\"$instance\"}", "legendFormat": "{{instance}}", "refId": "A"}]}
+  ]
+}

@@ -1,0 +1,53 @@
+# Prometheus scrape config for the lb-dsr-lab monitoring stack.
+# Ten targets: lb1/lb2 x {pfkeeper:9100, node:9101, pf:9102},
+# rs1/rs2 x {node:9100, nginx-vts:9913}.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # CARP/pfsync service orchestrator on both balancers
+  - job_name: pfkeeper
+    static_configs:
+      - targets:
+          - 192.168.100.11:9100
+          - 192.168.100.12:9100
+        labels:
+          cluster: lb-dsr-lab
+          role: lb
+
+  # node_exporter: FreeBSD on the balancers, Debian on the backends
+  - job_name: node
+    static_configs:
+      - targets:
+          - 192.168.100.11:9101
+          - 192.168.100.12:9101
+        labels:
+          cluster: lb-dsr-lab
+          role: lb
+      - targets:
+          - 192.168.100.21:9100
+          - 192.168.100.22:9100
+        labels:
+          cluster: lb-dsr-lab
+          role: backend
+
+  # pf packet filter counters on both balancers
+  - job_name: pf
+    static_configs:
+      - targets:
+          - 192.168.100.11:9102
+          - 192.168.100.12:9102
+        labels:
+          cluster: lb-dsr-lab
+          role: lb
+
+  # nginx VTS stats on the real servers
+  - job_name: nginx-vts
+    static_configs:
+      - targets:
+          - 192.168.100.21:9913
+          - 192.168.100.22:9913
+        labels:
+          cluster: lb-dsr-lab
+          role: backend

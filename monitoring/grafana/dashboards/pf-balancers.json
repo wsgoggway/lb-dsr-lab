@@ -1,0 +1,52 @@
+{
+  "uid": "pf-balancers",
+  "title": "pf balancers",
+  "tags": ["lb-dsr-lab"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {"list": [
+    {
+      "name": "instance",
+      "type": "query",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "definition": "label_values(pf_states, instance)",
+      "query": {"query": "label_values(pf_states, instance)", "refId": "StandardVariableQuery"},
+      "includeAll": true,
+      "multi": true,
+      "refresh": 1,
+      "current": {"selected": true, "text": ["All"], "value": ["$__all"]}
+    }
+  ]},
+  "panels": [
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "pf states", "id": 1, "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pf_states{instance=~\"$instance\"}", "legendFormat": "{{instance}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "State searches/s", "id": 2, "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pf_states_searches_total{instance=~\"$instance\"}[2m])", "legendFormat": "{{instance}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "State insert / removal rate", "id": 3, "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pf_states_inserts_total{instance=~\"$instance\"}[2m])", "legendFormat": "{{instance}} insert", "refId": "A"},
+       {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pf_states_removals_total{instance=~\"$instance\"}[2m])", "legendFormat": "{{instance}} removal", "refId": "B"}
+     ]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Match rule hits/s", "id": 4, "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate(pf_match_total{instance=~\"$instance\"}[2m])", "legendFormat": "{{instance}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "pf table addresses", "id": 5, "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "pf_table_addresses{instance=~\"$instance\"}", "legendFormat": "{{instance}} {{table}}", "refId": "A"}]},
+    {"datasource": {"type": "prometheus", "uid": "prometheus"}, "type": "timeseries", "title": "Anomalies/s (fragment, short, state mismatch)", "id": 6, "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+     "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+     "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+     "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "rate({__name__=~\"pf_(fragment|short|state_mismatch)_total\",instance=~\"$instance\"}[2m])", "legendFormat": "{{instance}} {{__name__}}", "refId": "A"}]}
+  ]
+}
