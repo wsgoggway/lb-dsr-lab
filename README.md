@@ -233,6 +233,11 @@ freebsd/amd64 + установка по SSH; для реального желе�
 Полные результаты и методики: `reports/2026-10-23-pfkeeper-testing-report.md`,
 `reports/2026-10-22-security-review-pfkeeper.md`.
 
+## Взвешенное распределение трафика
+
+Как получить веса на L3/L4 чистым pf (pf-таблицы весов не имеют), живой PoC с замерами
+и план интеграции в pfkeeper v1.1: **[docs/weighted-balancing.md](docs/weighted-balancing.md)**.
+
 ## Развёртывание на реальном железе
 
 Пошаговый мануал (топология, FreeBSD, CARP/pfsync на физических NIC и коммутаторах,
