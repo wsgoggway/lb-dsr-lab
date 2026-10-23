@@ -245,6 +245,13 @@ PoC-замеры, схема стейта и известные дефекты �
 метрика `pfkeeper_service_probability`; правило DSR на стенде рендерится pfkeeper-якорем
 из стейта (в pf.conf — `anchor "pfkeeper/*"`).
 
+## Обсервербилити
+
+Экспортеры на всех узлах: node_exporter (:9101 FreeBSD / :9100 Debian), pf_exporter (:9102),
+pfkeeper (:9100), nginx-vts-exporter (:9913). Прометей + Графана на хосте (Docker, host network):
+`monitoring/run.sh`, Grafana http://localhost:3000 (анонимный viewer, admin/admin), 4 дашборда
+(FreeBSD nodes, pf balancers, pfkeeper, nginx backends). Подробности: **[docs/observability.md](docs/observability.md)**.
+
 ## Развёртывание на реальном железе
 
 Пошаговый мануал (топология, FreeBSD, CARP/pfsync на физических NIC и коммутаторах,
