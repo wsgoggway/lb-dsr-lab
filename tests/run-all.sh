@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lab-env.sh
 
-TESTS=(t00-smoke t01-arp t02-dsr t03-sticky t04-backend-failure t05-mtu t06-nat-compare t07-carp-failover)
+TESTS=(t00-smoke t01-arp t02-dsr t03-sticky t04-backend-failure t05-mtu t06-nat-compare t07-carp-failover t13-weighted-balancing t14-weight-health t15-weighted-sticky t16-peer-weight)
 declare -A RESULT
 
 for t in "${TESTS[@]}"; do
