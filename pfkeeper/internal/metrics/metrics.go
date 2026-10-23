@@ -25,6 +25,9 @@ type Metrics struct {
 	ProbeFailures *prometheus.CounterVec
 	// ProbeTotal counts probes by result (ok|fail).
 	ProbeTotal *prometheus.CounterVec
+	// ServiceProbability carries the rendered traffic share (percent) of
+	// each member of a weighted service; republished on every render.
+	ServiceProbability *prometheus.GaugeVec
 
 	// ApplyTotal counts reconcile passes by result (ok|error).
 	ApplyTotal *prometheus.CounterVec
@@ -83,6 +86,8 @@ func New(node string) *Metrics {
 	m.ProbeFailures = counterVec("probe_failures_total", "Failed health probes by reason.", []string{"table", "address", "reason"})
 	m.ProbeTotal = counterVec("probe_total", "Health probes by result.", []string{"table", "address", "result"})
 
+	m.ServiceProbability = gaugeVec("service_probability", "Rendered traffic share (percent) of a weighted service member.", []string{"service", "member"})
+
 	m.ApplyTotal = counterVec("apply_total", "Reconcile passes by result.", []string{"result"})
 	m.Drift = gauge("drift", "1 when the desired state diverges from live pf.")
 
@@ -135,6 +140,15 @@ func (m *Metrics) ObserveProbe(table, addr string, passed bool, reason string) {
 	}
 	m.ProbeTotal.WithLabelValues(table, addr, result).Inc()
 }
+
+// SetServiceProbability publishes one rendered member share (percent).
+func (m *Metrics) SetServiceProbability(service, member string, pct float64) {
+	m.ServiceProbability.WithLabelValues(service, member).Set(pct)
+}
+
+// ResetServicePlans drops every service probability series. Called before a
+// full republish so drained or removed members do not linger on the gauge.
+func (m *Metrics) ResetServicePlans() { m.ServiceProbability.Reset() }
 
 // IncApply counts one reconcile pass.
 func (m *Metrics) IncApply(err bool) {

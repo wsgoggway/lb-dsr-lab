@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,13 +29,14 @@ var (
 )
 
 type cli struct {
-	tables  pfkeeperv1.TableServiceClient
-	rules   pfkeeperv1.RuleServiceClient
-	health  pfkeeperv1.HealthServiceClient
-	status  pfkeeperv1.StatusServiceClient
-	admin   pfkeeperv1.AdminServiceClient
-	peering pfkeeperv1.PeeringServiceClient
-	ctx     context.Context
+	tables   pfkeeperv1.TableServiceClient
+	services pfkeeperv1.ServiceServiceClient
+	rules    pfkeeperv1.RuleServiceClient
+	health   pfkeeperv1.HealthServiceClient
+	status   pfkeeperv1.StatusServiceClient
+	admin    pfkeeperv1.AdminServiceClient
+	peering  pfkeeperv1.PeeringServiceClient
+	ctx      context.Context
 }
 
 func main() {
@@ -61,13 +63,14 @@ func main() {
 	defer func() { _ = conn.Close() }()
 
 	c := &cli{
-		tables:  pfkeeperv1.NewTableServiceClient(conn),
-		rules:   pfkeeperv1.NewRuleServiceClient(conn),
-		health:  pfkeeperv1.NewHealthServiceClient(conn),
-		status:  pfkeeperv1.NewStatusServiceClient(conn),
-		admin:   pfkeeperv1.NewAdminServiceClient(conn),
-		peering: pfkeeperv1.NewPeeringServiceClient(conn),
-		ctx:     ctx,
+		tables:   pfkeeperv1.NewTableServiceClient(conn),
+		services: pfkeeperv1.NewServiceServiceClient(conn),
+		rules:    pfkeeperv1.NewRuleServiceClient(conn),
+		health:   pfkeeperv1.NewHealthServiceClient(conn),
+		status:   pfkeeperv1.NewStatusServiceClient(conn),
+		admin:    pfkeeperv1.NewAdminServiceClient(conn),
+		peering:  pfkeeperv1.NewPeeringServiceClient(conn),
+		ctx:      ctx,
 	}
 
 	if err := dispatch(c, args); err != nil {
@@ -109,6 +112,10 @@ func dispatch(c *cli, args []string) error {
 	switch cmd, rest := args[0], args[1:]; cmd {
 	case "tables":
 		return tablesCmd(c, rest)
+	case "service":
+		return serviceCmd(c, rest)
+	case "weight":
+		return weightCmd(c, rest)
 	case "health":
 		return healthCmd(c, rest)
 	case "rules":
@@ -193,6 +200,72 @@ func tablesCmd(c *cli, args []string) error {
 	default:
 		return fmt.Errorf("unknown tables subcommand %q", sub)
 	}
+	return nil
+}
+
+func serviceCmd(c *cli, args []string) error {
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "ls":
+		resp, err := c.services.ListServices(c.ctx, &emptypb.Empty{})
+		if err != nil {
+			return err
+		}
+		for _, s := range resp.GetServices() {
+			l := s.GetListen()
+			fmt.Printf("%-16s %-12s %s %s:%d %s sticky=%v\n",
+				s.GetService(), s.GetMode(), l.GetIface(), l.GetVip(), l.GetPort(), l.GetProto(), s.GetSticky())
+		}
+	case "show":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: pfk service show <name>")
+		}
+		resp, err := c.services.GetService(c.ctx, &pfkeeperv1.GetServiceRequest{Name: rest[0]})
+		if err != nil {
+			return err
+		}
+		s, l := resp.GetService(), resp.GetService().GetListen()
+		fmt.Printf("service:  %s (table=%s mode=%s sticky=%v)\n", s.GetService(), s.GetTable(), s.GetMode(), s.GetSticky())
+		fmt.Printf("listen:   %s %s:%d %s\n", l.GetIface(), l.GetVip(), l.GetPort(), l.GetProto())
+		fmt.Printf("revision: %s\n", resp.GetRevision())
+		for _, m := range resp.GetMembers() {
+			healthy := "DOWN"
+			if m.GetHealthy() {
+				healthy = "UP"
+			}
+			fmt.Printf("member:   %-16s weight=%-3d %-4s probability=%.1f%%\n",
+				m.GetAddr(), m.GetWeight(), healthy, m.GetProbability())
+		}
+		if resp.GetAnchor() != "" {
+			fmt.Printf("anchor:\n%s", resp.GetAnchor())
+		}
+	default:
+		return fmt.Errorf("unknown service subcommand %q", sub)
+	}
+	return nil
+}
+
+func weightCmd(c *cli, args []string) error {
+	sub, rest := args[0], args[1:]
+	if sub != "set" {
+		return fmt.Errorf("unknown weight subcommand %q", sub)
+	}
+	if len(rest) < 3 {
+		return fmt.Errorf("usage: pfk weight set <table> <addr> <weight> [-r reason]")
+	}
+	table, addr, w := rest[0], rest[1], rest[2]
+	weight, err := strconv.Atoi(w)
+	if err != nil || weight < 0 || weight > 100 {
+		return fmt.Errorf("weight %q must be an integer in 0..100 (0 = drain)", w)
+	}
+	reason := extractReason(&rest)
+	resp, err := c.tables.SetMemberWeight(c.ctx, &pfkeeperv1.SetMemberWeightRequest{
+		Table: table, Address: addr, Weight: int32(weight), Reason: reason,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(resp.GetCommit())
 	return nil
 }
 
@@ -413,6 +486,8 @@ global flags:
 
 commands:
   tables ls | get <n> | set <n> <members...> | add <n> <members...> | delete <n> <members...> [-r reason] | test <n> <addr>
+  service ls | show <name>
+  weight set <table> <addr> <0..100> [-r reason]
   health ls [table] | inspect <table> <addr> | probe <table> <addr>
   rules ls | validate <file|-> | apply-main [-dry-run]
   status pf | carp | peer | version

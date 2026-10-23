@@ -67,6 +67,19 @@ func TestCountersAndGaugesChange(t *testing.T) {
 		t.Fatalf("peer_lag_seconds = %v, want 42", got)
 	}
 
+	// service probability gauge (v1.1): published per render, reset drops
+	// drained members.
+	m.SetServiceProbability("web", "192.168.100.21", 50)
+	m.SetServiceProbability("web", "192.168.100.22", 30)
+	if got := testutil.ToFloat64(m.ServiceProbability.WithLabelValues("web", "192.168.100.21")); got != 50 {
+		t.Fatalf("service_probability = %v, want 50", got)
+	}
+	m.ResetServicePlans()
+	m.SetServiceProbability("web", "192.168.100.22", 100)
+	if got := testutil.ToFloat64(m.ServiceProbability.WithLabelValues("web", "192.168.100.22")); got != 100 {
+		t.Fatalf("service_probability after reset = %v, want 100", got)
+	}
+
 	// git + carp.
 	m.IncGitPull("ok")
 	if got := testutil.ToFloat64(m.GitPullTotal.WithLabelValues("ok")); got != 1 {

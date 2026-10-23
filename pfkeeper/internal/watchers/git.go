@@ -9,6 +9,7 @@ import (
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/metrics"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/peer"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/reconcile"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/render"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
 
@@ -52,10 +53,36 @@ func (w GitWatcher) Run(ctx context.Context) {
 // healthyView converts the monitor registry into the config-layer filter
 // (nil registry = config mode).
 func (w GitWatcher) healthyView() reconcile.HealthyView {
-	if w.Reg == nil {
+	return registryHealthy(w.Reg)
+}
+
+// registryHealthy is the shared health filter handed to reconcile and the
+// renderer: the rendering-grade view (v1.1) where a monitored table always
+// has a key, so a total outage degrades the weighted chain instead of
+// looking like "no health opinion". nil registry = config mode.
+func registryHealthy(reg *health.Registry) reconcile.HealthyView {
+	if reg == nil {
 		return nil
 	}
-	return w.Reg.Healthy()
+	return reg.HealthyStrict()
+}
+
+// publishPlans republishes the service probability gauge from the rendered
+// plans (Reset first: drained or removed members must not linger as stale
+// series) and reports degraded plans (no active member).
+func publishPlans(m *metrics.Metrics, plans []render.Plan, log *slog.Logger) {
+	if m == nil {
+		return
+	}
+	m.ResetServicePlans()
+	for _, p := range plans {
+		for _, mp := range p.Members {
+			m.SetServiceProbability(p.Service, mp.Addr, mp.Probability)
+		}
+		if p.Degraded && log != nil {
+			log.Warn("service has no active members; anchor cleared", "service", p.Service)
+		}
+	}
 }
 
 func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
@@ -81,7 +108,7 @@ func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
 	healthy := w.healthyView()
 	for _, td := range st.Tables {
 		log.Debug("git reconcile pass", "revision", rev, "table", td.Name,
-			"desired", td.Members, "healthy", healthy[td.Name])
+			"desired", state.Addrs(td.Members), "healthy", healthy[td.Name])
 	}
 	res, err := w.Rec.Reconcile(ctx, &st, rev, healthy)
 	if err != nil {
@@ -93,6 +120,7 @@ func (w GitWatcher) tick(ctx context.Context, log *slog.Logger) {
 	if res.Drift {
 		log.Info("applied drift", "revision", rev, "tables", res.TablesApplied, "anchors", res.AnchorsApplied)
 	}
+	publishPlans(w.Metrics, res.Services, log)
 	w.Metrics.IncGitPull("ok")
 	w.Metrics.IncApply(false)
 	w.Metrics.SetDrift(res.Drift)

@@ -80,10 +80,11 @@ func (s *Server) ownIdentity(ctx context.Context) (hash, rev string) {
 // redirectMethods are the client mutations a BACKUP may proxy to the MASTER
 // via RedirectWrite; everything else is refused.
 var redirectMethods = map[string]func(*Server, context.Context, string, []byte) ([]byte, error){
-	setTableM:      dispatchSetTable,
-	addMembersM:    dispatchAddMembers,
-	deleteMembersM: dispatchDeleteMembers,
-	syncM:          dispatchSync,
+	setTableM:        dispatchSetTable,
+	addMembersM:      dispatchAddMembers,
+	deleteMembersM:   dispatchDeleteMembers,
+	setMemberWeightM: dispatchSetMemberWeight,
+	syncM:            dispatchSync,
 }
 
 func dispatchSetTable(s *Server, ctx context.Context, actor string, payload []byte) ([]byte, error) {
@@ -116,6 +117,18 @@ func dispatchDeleteMembers(s *Server, ctx context.Context, actor string, payload
 		return nil, status.Errorf(codes.InvalidArgument, "bad payload: %v", err)
 	}
 	resp, err := s.deleteMembersLocal(ctx, actor, req)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(resp)
+}
+
+func dispatchSetMemberWeight(s *Server, ctx context.Context, actor string, payload []byte) ([]byte, error) {
+	req := &pfkeeperv1.SetMemberWeightRequest{}
+	if err := proto.Unmarshal(payload, req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad payload: %v", err)
+	}
+	resp, err := s.setMemberWeightLocal(ctx, actor, req)
 	if err != nil {
 		return nil, err
 	}

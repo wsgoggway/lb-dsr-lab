@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -32,7 +33,7 @@ func TestHealthWatcherPublishesOnStart(t *testing.T) {
 	st := &state.State{
 		Tables: []state.TableDef{{
 			Name:    "web",
-			Members: []string{"127.0.0.1"},
+			Members: state.PlainMembers("127.0.0.1"),
 			Health: &state.HealthSpec{
 				Type: "http", Port: addr.Port, Path: "/", Interval: "5s", Timeout: "1s", Rise: 1, Fall: 1,
 			},
@@ -179,7 +180,7 @@ func TestApplyEffectiveChainKeys(t *testing.T) {
 	reg.Register("web", addrUp, upSpec)
 	st := &state.State{
 		Tables: []state.TableDef{{
-			Name: "web", Members: addresses,
+			Name: "web", Members: state.PlainMembers(addresses...),
 			Health: &upSpec,
 		}},
 		Anchors: map[string]string{},
@@ -269,7 +270,7 @@ func TestApplyEffectiveOnPeerViewChange(t *testing.T) {
 	reg.Register("web", memberB, spec)
 
 	st := &state.State{Tables: []state.TableDef{{
-		Name: "web", Members: []string{memberA, memberB}, Health: &spec,
+		Name: "web", Members: state.PlainMembers(memberA, memberB), Health: &spec,
 	}}, Anchors: map[string]string{}}
 
 	runner := &recordingPfRunner{} // show returns memberA+memberB (see addr consts)
@@ -309,5 +310,170 @@ func TestApplyEffectiveOnPeerViewChange(t *testing.T) {
 	}
 	if n := runner.count("-T delete " + memberB); n != 0 {
 		t.Fatalf("healthy member deleted %d times, want 0", n)
+	}
+}
+
+// statefulPfRunner records pfctl calls, answers `table show` from
+// recordingPfRunner and remembers the last text loaded into each anchor
+// (AnchorsShow answers with it) — close enough to real pf for drift checks.
+type statefulPfRunner struct {
+	recordingPfRunner
+	mu        sync.Mutex
+	loaded    map[string]string
+	loadOrder []string // anchor texts in load order (last = current)
+}
+
+func newStatefulPfRunner() *statefulPfRunner {
+	return &statefulPfRunner{loaded: map[string]string{}}
+}
+
+func (r *statefulPfRunner) Run(ctx context.Context, bin string, args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, a := range args {
+		if strings.HasSuffix(a, ".conf") && strings.Contains(joined, "-f ") && i > 0 {
+			b, err := os.ReadFile(a)
+			if err == nil {
+				r.loaded[args[i-2]] = string(b) // keyed by the anchor name
+				r.loadOrder = append(r.loadOrder, string(b))
+			}
+			r.calls = append(r.calls, joined)
+			return "", nil
+		}
+	}
+	if i := strings.Index(joined, "-a "); i >= 0 && strings.Contains(joined, "-sr") {
+		rest := joined[i+len("-a "):]
+		anchor := rest
+		if j := strings.IndexByte(rest, ' '); j >= 0 {
+			anchor = rest[:j]
+		}
+		if text, ok := r.loaded[anchor]; ok {
+			r.calls = append(r.calls, joined)
+			return text, nil
+		}
+	}
+	r.calls = append(r.calls, joined)
+	if strings.Contains(joined, "-t web -T show") {
+		return addrDown + "\n" + addrUp + "\n", nil
+	}
+	return "", nil
+}
+
+func (r *statefulPfRunner) countLoads(substr string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, c := range r.calls {
+		if strings.Contains(c, substr) && strings.Contains(c, "-f ") {
+			n++
+		}
+	}
+	return n
+}
+
+// TestHealthWatcherRerendersServiceAnchors: the tickOnce wiring must call the
+// service-anchor re-render on a health flip — weighted chains reference
+// member addresses inline, so the table prune alone is not enough.
+func TestHealthWatcherRerendersServiceAnchors(t *testing.T) {
+	ctx := context.Background()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := &http.Server{Handler: ok, ReadHeaderTimeout: 2 * time.Second}
+	go func() { _ = srv.Serve(ln) }() //nolint:errcheck // test server
+	defer func() { _ = srv.Close() }()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	const memberA = "127.0.0.2" // no listener -> DOWN
+	const memberB = "127.0.0.1" // live endpoint -> UP
+
+	spec := state.HealthSpec{Type: "http", Port: port, Path: "/", Interval: "5s", Timeout: "1s", Rise: 1, Fall: 1}
+	reg := health.NewRegistry()
+	reg.Register("web", memberA, spec)
+	reg.Register("web", memberB, spec)
+
+	st := &state.State{
+		Tables: []state.TableDef{{
+			Name: "web", Members: state.PlainMembers(memberA, memberB), Health: &spec,
+		}},
+		Services: []state.ServiceDef{{
+			Service: "webdist",
+			Table:   "web",
+			Mode:    state.ModeWeighted,
+			Listen:  state.ListenDef{Iface: "vtnet0", VIP: "192.168.100.200", Port: 80, Proto: "tcp"},
+		}},
+		Anchors: map[string]string{},
+	}
+
+	runner := newStatefulPfRunner() // `-t web -T show` answers memberA+memberB
+	pf := pfctl.NewClient("/sbin/pfctl", runner)
+	hc, err := reconcile.NewHealthController(pf, nil, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := reconcile.NewConfigReconciler(pf, nil, &state.Store{Dir: t.TempDir()}, true)
+
+	w := &HealthWatcher{
+		Reg:     reg,
+		Hc:      hc,
+		Rec:     rec,
+		Metrics: metrics.New("test"),
+		State:   func() *state.State { return st },
+	}
+
+	// First pass: monitors rise (INACTIVE->UP/DOWN, changed=true) -> the
+	// service anchor is rendered and applied into pfkeeper/webdist.
+	if !w.ProbeOnce(ctx) {
+		t.Fatal("first pass reported no change")
+	}
+	if n := runner.countLoads("-a pfkeeper/webdist "); n != 1 {
+		t.Fatalf("service anchor loads after first pass = %d, want 1", n)
+	}
+
+	// Second unchanged pass: no reload (render input unchanged, live anchor
+	// matches).
+	if w.ProbeOnce(ctx) {
+		t.Fatal("second pass reported change")
+	}
+	if n := runner.countLoads("-a pfkeeper/webdist "); n != 1 {
+		t.Fatalf("service anchor reloads on unchanged pass = %d, want 1", n)
+	}
+
+	// A real local health flip: kill the only live endpoint and make every
+	// probe due again (rise=1, fall=1) — memberB goes UP->DOWN. memberA was
+	// DOWN from the start, so nothing is left behind the service and the
+	// degraded path fires: the anchor is CLEARED (empty) instead of leaking
+	// traffic past DSR.
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.nextDue = map[string]time.Time{}
+	if !w.ProbeOnce(ctx) {
+		t.Fatal("flip pass reported no change, want memberB UP->DOWN")
+	}
+	if n := runner.countLoads("-a pfkeeper/webdist "); n != 2 {
+		t.Fatalf("service anchor loads after local health flip = %d, want 2", n)
+	}
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	if len(runner.loadOrder) != 2 {
+		t.Fatalf("loads = %d, want 2", len(runner.loadOrder))
+	}
+	first, last := runner.loadOrder[0], runner.loadOrder[len(runner.loadOrder)-1]
+	// First chain: only the live member, one unconditional rule (the
+	// catch-all — a single active member needs no probability).
+	if !strings.Contains(first, "route-to (vtnet0 "+memberB+")") || strings.Contains(first, memberA) {
+		t.Fatalf("first chain wrong (memberA was down from the start):\n%s", first)
+	}
+	if strings.Contains(first, "probability") || strings.Count(first, "keep state (sloppy)") != 1 {
+		t.Fatalf("single-member chain must be one unconditional rule:\n%s", first)
+	}
+	if last != "" {
+		t.Fatalf("degraded chain = %q, want an empty (cleared) anchor", last)
 	}
 }

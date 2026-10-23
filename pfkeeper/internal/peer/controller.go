@@ -8,7 +8,10 @@ import (
 	"time"
 
 	pfkeeperv1 "github.com/wsgoggway/lb-dsr-lab/pfkeeper/api/pfkeeperv1"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/health"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/metrics"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/reconcile"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/render"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
 
@@ -66,6 +69,10 @@ type Controller struct {
 
 	TickInterval time.Duration
 	PushInterval time.Duration
+	// Metrics, when set, receives the peer observation on every loop tick
+	// (peer_reachable / peer_diverged / peer_lag_seconds — SetPeer was dead
+	// code before v1.1).
+	Metrics *metrics.Metrics
 
 	mu              sync.Mutex
 	localView       map[string]string // "table/addr" -> UP|DOWN|INACTIVE
@@ -234,6 +241,7 @@ func (c *Controller) tickOnce(ctx context.Context) {
 		if shouldWarn {
 			c.log.Warn("peer unreachable, running degraded", "self", c.self, "peer", c.cli.PeerID, "error", err)
 		}
+		c.publishPeerMetrics()
 		return
 	}
 
@@ -248,6 +256,7 @@ func (c *Controller) tickOnce(ctx context.Context) {
 	healRequested := c.healRequested
 	c.healRequested = false
 	c.mu.Unlock()
+	c.publishPeerMetrics()
 
 	role := Role(c.role.Role())
 	switch {
@@ -265,6 +274,18 @@ func (c *Controller) tickOnce(ctx context.Context) {
 	if err := c.cli.PublishHealth(ctx, c.healthView()); err != nil {
 		c.log.Warn("publish health failed", "self", c.self, "error", err)
 	}
+}
+
+// publishPeerMetrics pushes the latest peer observation into the metrics
+// registry (reachable from the SyncCheck outcome, diverged/lag from the
+// response and the last-reachable bookkeeping). Snapshot takes mu briefly —
+// never held across I/O.
+func (c *Controller) publishPeerMetrics() {
+	if c.Metrics == nil {
+		return
+	}
+	s := c.Snapshot()
+	c.Metrics.SetPeer(s.Reachable, s.Diverged, s.LagSeconds)
 }
 
 // SetAppliedSnapshot records the snapshot applied last: its hash/revision
@@ -346,7 +367,11 @@ func (c *Controller) maybePush(ctx context.Context, hash, rev string, diverged b
 // BuildSnapshot assembles the effective-config snapshot pushed to the BACKUP:
 // desired tables and anchors from the store; hash/revision identify the
 // applied git state. Tables without members are carried as empty strings so
-// the BACKUP sees the full desired picture.
+// the BACKUP sees the full desired picture. The service anchors are rendered
+// first (health-filtered by the local view) and merged into st.Anchors, so
+// the BACKUP receives the effective weighted chains verbatim and its
+// SyncCheck identity stays stable (anchors are part of the snapshot, not of
+// the git hash).
 func (c *Controller) BuildSnapshot(ctx context.Context, hash, rev string) *pfkeeperv1.EffectiveConfigSnapshot {
 	snap := &pfkeeperv1.EffectiveConfigSnapshot{Revision: rev, ConfigHash: hash}
 	if c.store == nil {
@@ -357,9 +382,15 @@ func (c *Controller) BuildSnapshot(ctx context.Context, hash, rev string) *pfkee
 		c.log.Warn("snapshot: load state failed", "dir", c.store.Dir, "error", err)
 		return snap
 	}
+	if _, rerr := render.All(&st, c.healthyView()); rerr != nil {
+		// Partial failures (a service with a dangling table reference) must
+		// not block the push of the rest; the BACKUP's SyncCheck + heal loop
+		// converges on the next pass.
+		c.log.Warn("snapshot: render services failed", "error", rerr)
+	}
 	tables := make(map[string]string, len(st.Tables))
 	for _, td := range st.Tables {
-		tables[td.Name] = strings.Join(td.Members, "\n")
+		tables[td.Name] = strings.Join(state.Addrs(td.Members), "\n")
 	}
 	snap.Tables = tables
 	if len(st.Anchors) > 0 {
@@ -368,15 +399,41 @@ func (c *Controller) BuildSnapshot(ctx context.Context, hash, rev string) *pfkee
 	return snap
 }
 
+// healthyView converts the local health view into the renderer's filter:
+// members not known DOWN are healthy (UP or not yet probed — mirrors
+// Registry.HealthyStrict), so a total outage degrades the rendered chain
+// instead of looking like "no health opinion".
+func (c *Controller) healthyView() render.HealthyView {
+	c.mu.Lock()
+	local := c.localView
+	c.mu.Unlock()
+
+	out := map[string]map[string]bool{}
+	for key, stt := range local {
+		t, addr, ok := splitLocalViewKey(key)
+		if !ok || stt == health.StateDOWN {
+			continue
+		}
+		if out[t] == nil {
+			out[t] = map[string]bool{}
+		}
+		out[t][addr] = true
+	}
+	return out
+}
+
 // ApplySnapshot converges the local pf to a snapshot received from the
-// MASTER (the M6 PeeringService server calls this on the BACKUP only).
+// MASTER (the M6 PeeringService server calls this on the BACKUP only). The
+// snapshot's anchors arrive already rendered by the MASTER and are applied
+// verbatim (no local re-render — st carries no services); the BACKUP's
+// health watcher re-renders them itself on local health transitions.
 func (c *Controller) ApplySnapshot(ctx context.Context, snap *pfkeeperv1.EffectiveConfigSnapshot) (reconcile.ReconcileResult, error) {
 	st := &state.State{Anchors: map[string]string{}}
 	for name, members := range snap.GetTables() {
 		td := state.TableDef{Name: name}
 		for _, line := range strings.Split(members, "\n") {
 			if line = strings.TrimSpace(line); line != "" {
-				td.Members = append(td.Members, line)
+				td.Members = append(td.Members, state.PlainMember(line))
 			}
 		}
 		st.Tables = append(st.Tables, td)
@@ -417,7 +474,7 @@ func (c *Controller) applyHealth(ctx context.Context, st *state.State) {
 	peer := c.PeerView()
 	peerReachable := c.Snapshot().Reachable
 	for _, td := range st.Tables {
-		if _, err := c.hc.ApplyEffective(ctx, td.Name, td.Members,
+		if _, err := c.hc.ApplyEffective(ctx, td.Name, state.Addrs(td.Members),
 			viewForTable(local, td.Name), viewForTable(peer, td.Name), peerReachable); err != nil {
 			c.log.Warn("post-snapshot health apply failed", "table", td.Name, "error", err)
 		}

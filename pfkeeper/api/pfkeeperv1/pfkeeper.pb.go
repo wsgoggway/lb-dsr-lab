@@ -131,21 +131,75 @@ func (x *HealthSpec) GetExpect() *HealthSpec_Expect {
 	return nil
 }
 
-// Table desired state, as stored in the git state.
-type Table struct {
+// One table member with its traffic distribution weight (v1.1).
+type Member struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Persist       bool                   `protobuf:"varint,2,opt,name=persist,proto3" json:"persist,omitempty"`
-	Members       []string               `protobuf:"bytes,3,rep,name=members,proto3" json:"members,omitempty"` // IPs
-	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	Health        *HealthSpec            `protobuf:"bytes,5,opt,name=health,proto3" json:"health,omitempty"`
+	Addr          string                 `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
+	Weight        int32                  `protobuf:"varint,2,opt,name=weight,proto3" json:"weight,omitempty"` // 0..100; 0 = drain (no weighted traffic); default 1
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *Member) Reset() {
+	*x = Member{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Member) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Member) ProtoMessage() {}
+
+func (x *Member) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Member.ProtoReflect.Descriptor instead.
+func (*Member) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Member) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *Member) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+// Table desired state, as stored in the git state.
+type Table struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Persist         bool                   `protobuf:"varint,2,opt,name=persist,proto3" json:"persist,omitempty"`
+	Members         []string               `protobuf:"bytes,3,rep,name=members,proto3" json:"members,omitempty"` // IPs (same order as members_detailed)
+	Description     string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Health          *HealthSpec            `protobuf:"bytes,5,opt,name=health,proto3" json:"health,omitempty"`
+	MembersDetailed []*Member              `protobuf:"bytes,6,rep,name=members_detailed,json=membersDetailed,proto3" json:"members_detailed,omitempty"` // members with weights (v1.1)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
 func (x *Table) Reset() {
 	*x = Table{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[1]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -157,7 +211,7 @@ func (x *Table) String() string {
 func (*Table) ProtoMessage() {}
 
 func (x *Table) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[1]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -170,7 +224,7 @@ func (x *Table) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Table.ProtoReflect.Descriptor instead.
 func (*Table) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{1}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Table) GetName() string {
@@ -208,6 +262,13 @@ func (x *Table) GetHealth() *HealthSpec {
 	return nil
 }
 
+func (x *Table) GetMembersDetailed() []*Member {
+	if x != nil {
+		return x.MembersDetailed
+	}
+	return nil
+}
+
 // Member health as seen by this node (or reported by the peer).
 type MemberHealth struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
@@ -226,7 +287,7 @@ type MemberHealth struct {
 
 func (x *MemberHealth) Reset() {
 	*x = MemberHealth{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[2]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -238,7 +299,7 @@ func (x *MemberHealth) String() string {
 func (*MemberHealth) ProtoMessage() {}
 
 func (x *MemberHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[2]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -251,7 +312,7 @@ func (x *MemberHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberHealth.ProtoReflect.Descriptor instead.
 func (*MemberHealth) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{2}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *MemberHealth) GetTable() string {
@@ -326,7 +387,7 @@ type PfStats struct {
 
 func (x *PfStats) Reset() {
 	*x = PfStats{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[3]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +399,7 @@ func (x *PfStats) String() string {
 func (*PfStats) ProtoMessage() {}
 
 func (x *PfStats) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[3]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +412,7 @@ func (x *PfStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PfStats.ProtoReflect.Descriptor instead.
 func (*PfStats) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{3}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PfStats) GetStatesEntries() uint64 {
@@ -414,7 +475,7 @@ type TableDiff struct {
 
 func (x *TableDiff) Reset() {
 	*x = TableDiff{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[4]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +487,7 @@ func (x *TableDiff) String() string {
 func (*TableDiff) ProtoMessage() {}
 
 func (x *TableDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[4]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +500,7 @@ func (x *TableDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableDiff.ProtoReflect.Descriptor instead.
 func (*TableDiff) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{4}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TableDiff) GetTable() string {
@@ -472,7 +533,7 @@ type ListTablesResponse struct {
 
 func (x *ListTablesResponse) Reset() {
 	*x = ListTablesResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[5]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -484,7 +545,7 @@ func (x *ListTablesResponse) String() string {
 func (*ListTablesResponse) ProtoMessage() {}
 
 func (x *ListTablesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[5]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -497,7 +558,7 @@ func (x *ListTablesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTablesResponse.ProtoReflect.Descriptor instead.
 func (*ListTablesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{5}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListTablesResponse) GetTables() []*Table {
@@ -516,7 +577,7 @@ type GetTableRequest struct {
 
 func (x *GetTableRequest) Reset() {
 	*x = GetTableRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[6]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +589,7 @@ func (x *GetTableRequest) String() string {
 func (*GetTableRequest) ProtoMessage() {}
 
 func (x *GetTableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[6]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +602,7 @@ func (x *GetTableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTableRequest.ProtoReflect.Descriptor instead.
 func (*GetTableRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{6}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetTableRequest) GetName() string {
@@ -562,7 +623,7 @@ type GetTableResponse struct {
 
 func (x *GetTableResponse) Reset() {
 	*x = GetTableResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[7]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -574,7 +635,7 @@ func (x *GetTableResponse) String() string {
 func (*GetTableResponse) ProtoMessage() {}
 
 func (x *GetTableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[7]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -587,7 +648,7 @@ func (x *GetTableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTableResponse.ProtoReflect.Descriptor instead.
 func (*GetTableResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{7}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetTableResponse) GetTable() *Table {
@@ -622,7 +683,7 @@ type SetTableRequest struct {
 
 func (x *SetTableRequest) Reset() {
 	*x = SetTableRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[8]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +695,7 @@ func (x *SetTableRequest) String() string {
 func (*SetTableRequest) ProtoMessage() {}
 
 func (x *SetTableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[8]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +708,7 @@ func (x *SetTableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetTableRequest.ProtoReflect.Descriptor instead.
 func (*SetTableRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{8}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SetTableRequest) GetName() string {
@@ -680,7 +741,7 @@ type SetTableResponse struct {
 
 func (x *SetTableResponse) Reset() {
 	*x = SetTableResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[9]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +753,7 @@ func (x *SetTableResponse) String() string {
 func (*SetTableResponse) ProtoMessage() {}
 
 func (x *SetTableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[9]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +766,7 @@ func (x *SetTableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetTableResponse.ProtoReflect.Descriptor instead.
 func (*SetTableResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{9}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SetTableResponse) GetCommit() string {
@@ -726,7 +787,7 @@ type AddMembersRequest struct {
 
 func (x *AddMembersRequest) Reset() {
 	*x = AddMembersRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[10]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +799,7 @@ func (x *AddMembersRequest) String() string {
 func (*AddMembersRequest) ProtoMessage() {}
 
 func (x *AddMembersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[10]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +812,7 @@ func (x *AddMembersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddMembersRequest.ProtoReflect.Descriptor instead.
 func (*AddMembersRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{10}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AddMembersRequest) GetTable() string {
@@ -784,7 +845,7 @@ type AddMembersResponse struct {
 
 func (x *AddMembersResponse) Reset() {
 	*x = AddMembersResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[11]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +857,7 @@ func (x *AddMembersResponse) String() string {
 func (*AddMembersResponse) ProtoMessage() {}
 
 func (x *AddMembersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[11]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,7 +870,7 @@ func (x *AddMembersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddMembersResponse.ProtoReflect.Descriptor instead.
 func (*AddMembersResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{11}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AddMembersResponse) GetCommit() string {
@@ -830,7 +891,7 @@ type DeleteMembersRequest struct {
 
 func (x *DeleteMembersRequest) Reset() {
 	*x = DeleteMembersRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[12]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -842,7 +903,7 @@ func (x *DeleteMembersRequest) String() string {
 func (*DeleteMembersRequest) ProtoMessage() {}
 
 func (x *DeleteMembersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[12]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -855,7 +916,7 @@ func (x *DeleteMembersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMembersRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMembersRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{12}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteMembersRequest) GetTable() string {
@@ -888,7 +949,7 @@ type DeleteMembersResponse struct {
 
 func (x *DeleteMembersResponse) Reset() {
 	*x = DeleteMembersResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[13]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +961,7 @@ func (x *DeleteMembersResponse) String() string {
 func (*DeleteMembersResponse) ProtoMessage() {}
 
 func (x *DeleteMembersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[13]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,10 +974,122 @@ func (x *DeleteMembersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMembersResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMembersResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{13}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteMembersResponse) GetCommit() string {
+	if x != nil {
+		return x.Commit
+	}
+	return ""
+}
+
+type SetMemberWeightRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Table         string                 `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	Weight        int32                  `protobuf:"varint,3,opt,name=weight,proto3" json:"weight,omitempty"` // 0..100; 0 = drain
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`  // free-form, goes into the git commit message
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMemberWeightRequest) Reset() {
+	*x = SetMemberWeightRequest{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMemberWeightRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMemberWeightRequest) ProtoMessage() {}
+
+func (x *SetMemberWeightRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMemberWeightRequest.ProtoReflect.Descriptor instead.
+func (*SetMemberWeightRequest) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SetMemberWeightRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *SetMemberWeightRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *SetMemberWeightRequest) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *SetMemberWeightRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type SetMemberWeightResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Commit        string                 `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMemberWeightResponse) Reset() {
+	*x = SetMemberWeightResponse{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMemberWeightResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMemberWeightResponse) ProtoMessage() {}
+
+func (x *SetMemberWeightResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMemberWeightResponse.ProtoReflect.Descriptor instead.
+func (*SetMemberWeightResponse) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SetMemberWeightResponse) GetCommit() string {
 	if x != nil {
 		return x.Commit
 	}
@@ -933,7 +1106,7 @@ type TestAddressRequest struct {
 
 func (x *TestAddressRequest) Reset() {
 	*x = TestAddressRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[14]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +1118,7 @@ func (x *TestAddressRequest) String() string {
 func (*TestAddressRequest) ProtoMessage() {}
 
 func (x *TestAddressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[14]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -958,7 +1131,7 @@ func (x *TestAddressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestAddressRequest.ProtoReflect.Descriptor instead.
 func (*TestAddressRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{14}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TestAddressRequest) GetTable() string {
@@ -984,7 +1157,7 @@ type TestAddressResponse struct {
 
 func (x *TestAddressResponse) Reset() {
 	*x = TestAddressResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[15]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1169,7 @@ func (x *TestAddressResponse) String() string {
 func (*TestAddressResponse) ProtoMessage() {}
 
 func (x *TestAddressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[15]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1182,7 @@ func (x *TestAddressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestAddressResponse.ProtoReflect.Descriptor instead.
 func (*TestAddressResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{15}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TestAddressResponse) GetFound() bool {
@@ -1017,6 +1190,308 @@ func (x *TestAddressResponse) GetFound() bool {
 		return x.Found
 	}
 	return false
+}
+
+// ServiceDef is the desired state of one DSR service (services/<name>.yaml).
+type ServiceDef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Table         string                 `protobuf:"bytes,2,opt,name=table,proto3" json:"table,omitempty"` // members and health come from this table
+	Mode          string                 `protobuf:"bytes,3,opt,name=mode,proto3" json:"mode,omitempty"`   // "weighted" | "round-robin"
+	Listen        *ServiceDef_Listen     `protobuf:"bytes,4,opt,name=listen,proto3" json:"listen,omitempty"`
+	Sticky        bool                   `protobuf:"varint,5,opt,name=sticky,proto3" json:"sticky,omitempty"` // + sticky-address (per-source affinity)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceDef) Reset() {
+	*x = ServiceDef{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceDef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceDef) ProtoMessage() {}
+
+func (x *ServiceDef) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceDef.ProtoReflect.Descriptor instead.
+func (*ServiceDef) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ServiceDef) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *ServiceDef) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *ServiceDef) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *ServiceDef) GetListen() *ServiceDef_Listen {
+	if x != nil {
+		return x.Listen
+	}
+	return nil
+}
+
+func (x *ServiceDef) GetSticky() bool {
+	if x != nil {
+		return x.Sticky
+	}
+	return false
+}
+
+// ServiceMember is one rendered chain entry (weighted mode).
+type ServiceMember struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Addr          string                 `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
+	Weight        int32                  `protobuf:"varint,2,opt,name=weight,proto3" json:"weight,omitempty"`
+	Healthy       bool                   `protobuf:"varint,3,opt,name=healthy,proto3" json:"healthy,omitempty"`
+	Probability   float64                `protobuf:"fixed64,4,opt,name=probability,proto3" json:"probability,omitempty"` // rendered share of the total traffic, percent;
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceMember) Reset() {
+	*x = ServiceMember{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceMember) ProtoMessage() {}
+
+func (x *ServiceMember) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceMember.ProtoReflect.Descriptor instead.
+func (*ServiceMember) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ServiceMember) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *ServiceMember) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *ServiceMember) GetHealthy() bool {
+	if x != nil {
+		return x.Healthy
+	}
+	return false
+}
+
+func (x *ServiceMember) GetProbability() float64 {
+	if x != nil {
+		return x.Probability
+	}
+	return 0
+}
+
+type ListServicesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Services      []*ServiceDef          `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServicesResponse) Reset() {
+	*x = ListServicesResponse{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServicesResponse) ProtoMessage() {}
+
+func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServicesResponse.ProtoReflect.Descriptor instead.
+func (*ListServicesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListServicesResponse) GetServices() []*ServiceDef {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type GetServiceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceRequest) Reset() {
+	*x = GetServiceRequest{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceRequest) ProtoMessage() {}
+
+func (x *GetServiceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceRequest.ProtoReflect.Descriptor instead.
+func (*GetServiceRequest) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GetServiceRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetServiceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       *ServiceDef            `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Members       []*ServiceMember       `protobuf:"bytes,2,rep,name=members,proto3" json:"members,omitempty"` // rendered chain order (weight desc)
+	Anchor        string                 `protobuf:"bytes,3,opt,name=anchor,proto3" json:"anchor,omitempty"`   // rendered rules text (anchor body)
+	Revision      string                 `protobuf:"bytes,4,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceResponse) Reset() {
+	*x = GetServiceResponse{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceResponse) ProtoMessage() {}
+
+func (x *GetServiceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceResponse.ProtoReflect.Descriptor instead.
+func (*GetServiceResponse) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GetServiceResponse) GetService() *ServiceDef {
+	if x != nil {
+		return x.Service
+	}
+	return nil
+}
+
+func (x *GetServiceResponse) GetMembers() []*ServiceMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *GetServiceResponse) GetAnchor() string {
+	if x != nil {
+		return x.Anchor
+	}
+	return ""
+}
+
+func (x *GetServiceResponse) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
 }
 
 type GetAnchorsResponse struct {
@@ -1028,7 +1503,7 @@ type GetAnchorsResponse struct {
 
 func (x *GetAnchorsResponse) Reset() {
 	*x = GetAnchorsResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[16]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1040,7 +1515,7 @@ func (x *GetAnchorsResponse) String() string {
 func (*GetAnchorsResponse) ProtoMessage() {}
 
 func (x *GetAnchorsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[16]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1053,7 +1528,7 @@ func (x *GetAnchorsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAnchorsResponse.ProtoReflect.Descriptor instead.
 func (*GetAnchorsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{16}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetAnchorsResponse) GetAnchors() map[string]string {
@@ -1072,7 +1547,7 @@ type ValidateRequest struct {
 
 func (x *ValidateRequest) Reset() {
 	*x = ValidateRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[17]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1084,7 +1559,7 @@ func (x *ValidateRequest) String() string {
 func (*ValidateRequest) ProtoMessage() {}
 
 func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[17]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1097,7 +1572,7 @@ func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateRequest.ProtoReflect.Descriptor instead.
 func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{17}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ValidateRequest) GetRules() string {
@@ -1117,7 +1592,7 @@ type ValidateResponse struct {
 
 func (x *ValidateResponse) Reset() {
 	*x = ValidateResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[18]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1129,7 +1604,7 @@ func (x *ValidateResponse) String() string {
 func (*ValidateResponse) ProtoMessage() {}
 
 func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[18]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1142,7 +1617,7 @@ func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateResponse.ProtoReflect.Descriptor instead.
 func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{18}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ValidateResponse) GetOk() bool {
@@ -1168,7 +1643,7 @@ type ApplyMainConfRequest struct {
 
 func (x *ApplyMainConfRequest) Reset() {
 	*x = ApplyMainConfRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[19]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1180,7 +1655,7 @@ func (x *ApplyMainConfRequest) String() string {
 func (*ApplyMainConfRequest) ProtoMessage() {}
 
 func (x *ApplyMainConfRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[19]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1193,7 +1668,7 @@ func (x *ApplyMainConfRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyMainConfRequest.ProtoReflect.Descriptor instead.
 func (*ApplyMainConfRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{19}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ApplyMainConfRequest) GetDryRun() bool {
@@ -1213,7 +1688,7 @@ type ApplyMainConfResponse struct {
 
 func (x *ApplyMainConfResponse) Reset() {
 	*x = ApplyMainConfResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[20]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1225,7 +1700,7 @@ func (x *ApplyMainConfResponse) String() string {
 func (*ApplyMainConfResponse) ProtoMessage() {}
 
 func (x *ApplyMainConfResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[20]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1238,7 +1713,7 @@ func (x *ApplyMainConfResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyMainConfResponse.ProtoReflect.Descriptor instead.
 func (*ApplyMainConfResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{20}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ApplyMainConfResponse) GetApplied() bool {
@@ -1265,7 +1740,7 @@ type DiffResponse struct {
 
 func (x *DiffResponse) Reset() {
 	*x = DiffResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[21]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1277,7 +1752,7 @@ func (x *DiffResponse) String() string {
 func (*DiffResponse) ProtoMessage() {}
 
 func (x *DiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[21]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1290,7 +1765,7 @@ func (x *DiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffResponse.ProtoReflect.Descriptor instead.
 func (*DiffResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{21}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *DiffResponse) GetTables() []*TableDiff {
@@ -1316,7 +1791,7 @@ type ListHealthRequest struct {
 
 func (x *ListHealthRequest) Reset() {
 	*x = ListHealthRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[22]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1328,7 +1803,7 @@ func (x *ListHealthRequest) String() string {
 func (*ListHealthRequest) ProtoMessage() {}
 
 func (x *ListHealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[22]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1341,7 +1816,7 @@ func (x *ListHealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHealthRequest.ProtoReflect.Descriptor instead.
 func (*ListHealthRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{22}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListHealthRequest) GetTable() string {
@@ -1360,7 +1835,7 @@ type ListHealthResponse struct {
 
 func (x *ListHealthResponse) Reset() {
 	*x = ListHealthResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[23]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1372,7 +1847,7 @@ func (x *ListHealthResponse) String() string {
 func (*ListHealthResponse) ProtoMessage() {}
 
 func (x *ListHealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[23]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1385,7 +1860,7 @@ func (x *ListHealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHealthResponse.ProtoReflect.Descriptor instead.
 func (*ListHealthResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{23}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListHealthResponse) GetMembers() []*MemberHealth {
@@ -1405,7 +1880,7 @@ type InspectRequest struct {
 
 func (x *InspectRequest) Reset() {
 	*x = InspectRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[24]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1892,7 @@ func (x *InspectRequest) String() string {
 func (*InspectRequest) ProtoMessage() {}
 
 func (x *InspectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[24]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1905,7 @@ func (x *InspectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectRequest.ProtoReflect.Descriptor instead.
 func (*InspectRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{24}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *InspectRequest) GetTable() string {
@@ -1457,7 +1932,7 @@ type InspectResponse struct {
 
 func (x *InspectResponse) Reset() {
 	*x = InspectResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[25]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1469,7 +1944,7 @@ func (x *InspectResponse) String() string {
 func (*InspectResponse) ProtoMessage() {}
 
 func (x *InspectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[25]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1482,7 +1957,7 @@ func (x *InspectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectResponse.ProtoReflect.Descriptor instead.
 func (*InspectResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{25}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *InspectResponse) GetMember() *MemberHealth {
@@ -1509,7 +1984,7 @@ type ForceCheckRequest struct {
 
 func (x *ForceCheckRequest) Reset() {
 	*x = ForceCheckRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[26]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1996,7 @@ func (x *ForceCheckRequest) String() string {
 func (*ForceCheckRequest) ProtoMessage() {}
 
 func (x *ForceCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[26]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +2009,7 @@ func (x *ForceCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForceCheckRequest.ProtoReflect.Descriptor instead.
 func (*ForceCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{26}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ForceCheckRequest) GetTable() string {
@@ -1562,7 +2037,7 @@ type CarpStateResponse struct {
 
 func (x *CarpStateResponse) Reset() {
 	*x = CarpStateResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[27]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1574,7 +2049,7 @@ func (x *CarpStateResponse) String() string {
 func (*CarpStateResponse) ProtoMessage() {}
 
 func (x *CarpStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[27]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1587,7 +2062,7 @@ func (x *CarpStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CarpStateResponse.ProtoReflect.Descriptor instead.
 func (*CarpStateResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{27}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CarpStateResponse) GetRole() string {
@@ -1624,7 +2099,7 @@ type PeerStateResponse struct {
 
 func (x *PeerStateResponse) Reset() {
 	*x = PeerStateResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[28]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1636,7 +2111,7 @@ func (x *PeerStateResponse) String() string {
 func (*PeerStateResponse) ProtoMessage() {}
 
 func (x *PeerStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[28]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1649,7 +2124,7 @@ func (x *PeerStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerStateResponse.ProtoReflect.Descriptor instead.
 func (*PeerStateResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{28}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *PeerStateResponse) GetReachable() bool {
@@ -1698,7 +2173,7 @@ type VersionResponse struct {
 
 func (x *VersionResponse) Reset() {
 	*x = VersionResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[29]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1710,7 +2185,7 @@ func (x *VersionResponse) String() string {
 func (*VersionResponse) ProtoMessage() {}
 
 func (x *VersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[29]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1723,7 +2198,7 @@ func (x *VersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VersionResponse.ProtoReflect.Descriptor instead.
 func (*VersionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{29}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *VersionResponse) GetVersion() string {
@@ -1757,7 +2232,7 @@ type SyncResponse struct {
 
 func (x *SyncResponse) Reset() {
 	*x = SyncResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[30]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1769,7 +2244,7 @@ func (x *SyncResponse) String() string {
 func (*SyncResponse) ProtoMessage() {}
 
 func (x *SyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[30]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1782,7 +2257,7 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{30}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SyncResponse) GetRevision() string {
@@ -1808,7 +2283,7 @@ type RollbackRequest struct {
 
 func (x *RollbackRequest) Reset() {
 	*x = RollbackRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[31]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1820,7 +2295,7 @@ func (x *RollbackRequest) String() string {
 func (*RollbackRequest) ProtoMessage() {}
 
 func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[31]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1833,7 +2308,7 @@ func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackRequest.ProtoReflect.Descriptor instead.
 func (*RollbackRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{31}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RollbackRequest) GetCommit() string {
@@ -1852,7 +2327,7 @@ type RollbackResponse struct {
 
 func (x *RollbackResponse) Reset() {
 	*x = RollbackResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[32]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1864,7 +2339,7 @@ func (x *RollbackResponse) String() string {
 func (*RollbackResponse) ProtoMessage() {}
 
 func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[32]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1877,7 +2352,7 @@ func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackResponse.ProtoReflect.Descriptor instead.
 func (*RollbackResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{32}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RollbackResponse) GetRevision() string {
@@ -1902,7 +2377,7 @@ type EffectiveConfigSnapshot struct {
 
 func (x *EffectiveConfigSnapshot) Reset() {
 	*x = EffectiveConfigSnapshot{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[33]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1914,7 +2389,7 @@ func (x *EffectiveConfigSnapshot) String() string {
 func (*EffectiveConfigSnapshot) ProtoMessage() {}
 
 func (x *EffectiveConfigSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[33]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1927,7 +2402,7 @@ func (x *EffectiveConfigSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EffectiveConfigSnapshot.ProtoReflect.Descriptor instead.
 func (*EffectiveConfigSnapshot) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{33}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *EffectiveConfigSnapshot) GetRevision() string {
@@ -1969,7 +2444,7 @@ type HealthView struct {
 
 func (x *HealthView) Reset() {
 	*x = HealthView{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[34]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1981,7 +2456,7 @@ func (x *HealthView) String() string {
 func (*HealthView) ProtoMessage() {}
 
 func (x *HealthView) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[34]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1994,7 +2469,7 @@ func (x *HealthView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthView.ProtoReflect.Descriptor instead.
 func (*HealthView) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{34}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *HealthView) GetNode() string {
@@ -2022,7 +2497,7 @@ type SyncCheckRequest struct {
 
 func (x *SyncCheckRequest) Reset() {
 	*x = SyncCheckRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[35]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2034,7 +2509,7 @@ func (x *SyncCheckRequest) String() string {
 func (*SyncCheckRequest) ProtoMessage() {}
 
 func (x *SyncCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[35]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2047,7 +2522,7 @@ func (x *SyncCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncCheckRequest.ProtoReflect.Descriptor instead.
 func (*SyncCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{35}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *SyncCheckRequest) GetConfigHash() string {
@@ -2075,7 +2550,7 @@ type SyncCheckResponse struct {
 
 func (x *SyncCheckResponse) Reset() {
 	*x = SyncCheckResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[36]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2087,7 +2562,7 @@ func (x *SyncCheckResponse) String() string {
 func (*SyncCheckResponse) ProtoMessage() {}
 
 func (x *SyncCheckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[36]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2100,7 +2575,7 @@ func (x *SyncCheckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncCheckResponse.ProtoReflect.Descriptor instead.
 func (*SyncCheckResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{36}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SyncCheckResponse) GetDiverged() bool {
@@ -2136,7 +2611,7 @@ type RedirectWriteRequest struct {
 
 func (x *RedirectWriteRequest) Reset() {
 	*x = RedirectWriteRequest{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[37]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2148,7 +2623,7 @@ func (x *RedirectWriteRequest) String() string {
 func (*RedirectWriteRequest) ProtoMessage() {}
 
 func (x *RedirectWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[37]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2161,7 +2636,7 @@ func (x *RedirectWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RedirectWriteRequest.ProtoReflect.Descriptor instead.
 func (*RedirectWriteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{37}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *RedirectWriteRequest) GetMethod() string {
@@ -2194,7 +2669,7 @@ type RedirectWriteResponse struct {
 
 func (x *RedirectWriteResponse) Reset() {
 	*x = RedirectWriteResponse{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[38]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2206,7 +2681,7 @@ func (x *RedirectWriteResponse) String() string {
 func (*RedirectWriteResponse) ProtoMessage() {}
 
 func (x *RedirectWriteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[38]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2219,7 +2694,7 @@ func (x *RedirectWriteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RedirectWriteResponse.ProtoReflect.Descriptor instead.
 func (*RedirectWriteResponse) Descriptor() ([]byte, []int) {
-	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{38}
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *RedirectWriteResponse) GetPayload() []byte {
@@ -2239,7 +2714,7 @@ type HealthSpec_Expect struct {
 
 func (x *HealthSpec_Expect) Reset() {
 	*x = HealthSpec_Expect{}
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[39]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2251,7 +2726,7 @@ func (x *HealthSpec_Expect) String() string {
 func (*HealthSpec_Expect) ProtoMessage() {}
 
 func (x *HealthSpec_Expect) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_v1_pfkeeper_proto_msgTypes[39]
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2281,6 +2756,74 @@ func (x *HealthSpec_Expect) GetJq() string {
 	return ""
 }
 
+type ServiceDef_Listen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Iface         string                 `protobuf:"bytes,1,opt,name=iface,proto3" json:"iface,omitempty"`
+	Vip           string                 `protobuf:"bytes,2,opt,name=vip,proto3" json:"vip,omitempty"`
+	Port          int32                  `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	Proto         string                 `protobuf:"bytes,4,opt,name=proto,proto3" json:"proto,omitempty"` // "tcp" in v1
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceDef_Listen) Reset() {
+	*x = ServiceDef_Listen{}
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceDef_Listen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceDef_Listen) ProtoMessage() {}
+
+func (x *ServiceDef_Listen) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_v1_pfkeeper_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceDef_Listen.ProtoReflect.Descriptor instead.
+func (*ServiceDef_Listen) Descriptor() ([]byte, []int) {
+	return file_proto_v1_pfkeeper_proto_rawDescGZIP(), []int{19, 0}
+}
+
+func (x *ServiceDef_Listen) GetIface() string {
+	if x != nil {
+		return x.Iface
+	}
+	return ""
+}
+
+func (x *ServiceDef_Listen) GetVip() string {
+	if x != nil {
+		return x.Vip
+	}
+	return ""
+}
+
+func (x *ServiceDef_Listen) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ServiceDef_Listen) GetProto() string {
+	if x != nil {
+		return x.Proto
+	}
+	return ""
+}
+
 var File_proto_v1_pfkeeper_proto protoreflect.FileDescriptor
 
 const file_proto_v1_pfkeeper_proto_rawDesc = "" +
@@ -2298,13 +2841,17 @@ const file_proto_v1_pfkeeper_proto_rawDesc = "" +
 	"\x06expect\x18\b \x01(\v2\x1e.pfkeeper.v1.HealthSpec.ExpectR\x06expect\x1a0\n" +
 	"\x06Expect\x12\x16\n" +
 	"\x06status\x18\x01 \x03(\tR\x06status\x12\x0e\n" +
-	"\x02jq\x18\x02 \x01(\tR\x02jq\"\xa2\x01\n" +
+	"\x02jq\x18\x02 \x01(\tR\x02jq\"4\n" +
+	"\x06Member\x12\x12\n" +
+	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
+	"\x06weight\x18\x02 \x01(\x05R\x06weight\"\xe2\x01\n" +
 	"\x05Table\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\apersist\x18\x02 \x01(\bR\apersist\x12\x18\n" +
 	"\amembers\x18\x03 \x03(\tR\amembers\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12/\n" +
-	"\x06health\x18\x05 \x01(\v2\x17.pfkeeper.v1.HealthSpecR\x06health\"\x88\x02\n" +
+	"\x06health\x18\x05 \x01(\v2\x17.pfkeeper.v1.HealthSpecR\x06health\x12>\n" +
+	"\x10members_detailed\x18\x06 \x03(\v2\x13.pfkeeper.v1.MemberR\x0fmembersDetailed\"\x88\x02\n" +
 	"\fMemberHealth\x12\x14\n" +
 	"\x05table\x18\x01 \x01(\tR\x05table\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x14\n" +
@@ -2353,12 +2900,45 @@ const file_proto_v1_pfkeeper_proto_rawDesc = "" +
 	"\amembers\x18\x02 \x03(\tR\amembers\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\"/\n" +
 	"\x15DeleteMembersResponse\x12\x16\n" +
+	"\x06commit\x18\x01 \x01(\tR\x06commit\"x\n" +
+	"\x16SetMemberWeightRequest\x12\x14\n" +
+	"\x05table\x18\x01 \x01(\tR\x05table\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
+	"\x06weight\x18\x03 \x01(\x05R\x06weight\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"1\n" +
+	"\x17SetMemberWeightResponse\x12\x16\n" +
 	"\x06commit\x18\x01 \x01(\tR\x06commit\"D\n" +
 	"\x12TestAddressRequest\x12\x14\n" +
 	"\x05table\x18\x01 \x01(\tR\x05table\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"+\n" +
 	"\x13TestAddressResponse\x12\x14\n" +
-	"\x05found\x18\x01 \x01(\bR\x05found\"\x98\x01\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\"\xfc\x01\n" +
+	"\n" +
+	"ServiceDef\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x14\n" +
+	"\x05table\x18\x02 \x01(\tR\x05table\x12\x12\n" +
+	"\x04mode\x18\x03 \x01(\tR\x04mode\x126\n" +
+	"\x06listen\x18\x04 \x01(\v2\x1e.pfkeeper.v1.ServiceDef.ListenR\x06listen\x12\x16\n" +
+	"\x06sticky\x18\x05 \x01(\bR\x06sticky\x1aZ\n" +
+	"\x06Listen\x12\x14\n" +
+	"\x05iface\x18\x01 \x01(\tR\x05iface\x12\x10\n" +
+	"\x03vip\x18\x02 \x01(\tR\x03vip\x12\x12\n" +
+	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x14\n" +
+	"\x05proto\x18\x04 \x01(\tR\x05proto\"w\n" +
+	"\rServiceMember\x12\x12\n" +
+	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
+	"\x06weight\x18\x02 \x01(\x05R\x06weight\x12\x18\n" +
+	"\ahealthy\x18\x03 \x01(\bR\ahealthy\x12 \n" +
+	"\vprobability\x18\x04 \x01(\x01R\vprobability\"K\n" +
+	"\x14ListServicesResponse\x123\n" +
+	"\bservices\x18\x01 \x03(\v2\x17.pfkeeper.v1.ServiceDefR\bservices\"'\n" +
+	"\x11GetServiceRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\xb1\x01\n" +
+	"\x12GetServiceResponse\x121\n" +
+	"\aservice\x18\x01 \x01(\v2\x17.pfkeeper.v1.ServiceDefR\aservice\x124\n" +
+	"\amembers\x18\x02 \x03(\v2\x1a.pfkeeper.v1.ServiceMemberR\amembers\x12\x16\n" +
+	"\x06anchor\x18\x03 \x01(\tR\x06anchor\x12\x1a\n" +
+	"\brevision\x18\x04 \x01(\tR\brevision\"\x98\x01\n" +
 	"\x12GetAnchorsResponse\x12F\n" +
 	"\aanchors\x18\x01 \x03(\v2,.pfkeeper.v1.GetAnchorsResponse.AnchorsEntryR\aanchors\x1a:\n" +
 	"\fAnchorsEntry\x12\x10\n" +
@@ -2444,7 +3024,7 @@ const file_proto_v1_pfkeeper_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\fR\apayload\x12\x19\n" +
 	"\bactor_cn\x18\x03 \x01(\tR\aactorCn\"1\n" +
 	"\x15RedirectWriteResponse\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload2\xe0\x03\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload2\xbe\x04\n" +
 	"\fTableService\x12E\n" +
 	"\n" +
 	"ListTables\x12\x16.google.protobuf.Empty\x1a\x1f.pfkeeper.v1.ListTablesResponse\x12G\n" +
@@ -2452,8 +3032,13 @@ const file_proto_v1_pfkeeper_proto_rawDesc = "" +
 	"\bSetTable\x12\x1c.pfkeeper.v1.SetTableRequest\x1a\x1d.pfkeeper.v1.SetTableResponse\x12M\n" +
 	"\n" +
 	"AddMembers\x12\x1e.pfkeeper.v1.AddMembersRequest\x1a\x1f.pfkeeper.v1.AddMembersResponse\x12V\n" +
-	"\rDeleteMembers\x12!.pfkeeper.v1.DeleteMembersRequest\x1a\".pfkeeper.v1.DeleteMembersResponse\x12P\n" +
-	"\vTestAddress\x12\x1f.pfkeeper.v1.TestAddressRequest\x1a .pfkeeper.v1.TestAddressResponse2\xb0\x02\n" +
+	"\rDeleteMembers\x12!.pfkeeper.v1.DeleteMembersRequest\x1a\".pfkeeper.v1.DeleteMembersResponse\x12\\\n" +
+	"\x0fSetMemberWeight\x12#.pfkeeper.v1.SetMemberWeightRequest\x1a$.pfkeeper.v1.SetMemberWeightResponse\x12P\n" +
+	"\vTestAddress\x12\x1f.pfkeeper.v1.TestAddressRequest\x1a .pfkeeper.v1.TestAddressResponse2\xaa\x01\n" +
+	"\x0eServiceService\x12I\n" +
+	"\fListServices\x12\x16.google.protobuf.Empty\x1a!.pfkeeper.v1.ListServicesResponse\x12M\n" +
+	"\n" +
+	"GetService\x12\x1e.pfkeeper.v1.GetServiceRequest\x1a\x1f.pfkeeper.v1.GetServiceResponse2\xb0\x02\n" +
 	"\vRuleService\x12E\n" +
 	"\n" +
 	"GetAnchors\x12\x16.google.protobuf.Empty\x1a\x1f.pfkeeper.v1.GetAnchorsResponse\x12G\n" +
@@ -2494,121 +3079,141 @@ func file_proto_v1_pfkeeper_proto_rawDescGZIP() []byte {
 	return file_proto_v1_pfkeeper_proto_rawDescData
 }
 
-var file_proto_v1_pfkeeper_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_proto_v1_pfkeeper_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_proto_v1_pfkeeper_proto_goTypes = []any{
 	(*HealthSpec)(nil),              // 0: pfkeeper.v1.HealthSpec
-	(*Table)(nil),                   // 1: pfkeeper.v1.Table
-	(*MemberHealth)(nil),            // 2: pfkeeper.v1.MemberHealth
-	(*PfStats)(nil),                 // 3: pfkeeper.v1.PfStats
-	(*TableDiff)(nil),               // 4: pfkeeper.v1.TableDiff
-	(*ListTablesResponse)(nil),      // 5: pfkeeper.v1.ListTablesResponse
-	(*GetTableRequest)(nil),         // 6: pfkeeper.v1.GetTableRequest
-	(*GetTableResponse)(nil),        // 7: pfkeeper.v1.GetTableResponse
-	(*SetTableRequest)(nil),         // 8: pfkeeper.v1.SetTableRequest
-	(*SetTableResponse)(nil),        // 9: pfkeeper.v1.SetTableResponse
-	(*AddMembersRequest)(nil),       // 10: pfkeeper.v1.AddMembersRequest
-	(*AddMembersResponse)(nil),      // 11: pfkeeper.v1.AddMembersResponse
-	(*DeleteMembersRequest)(nil),    // 12: pfkeeper.v1.DeleteMembersRequest
-	(*DeleteMembersResponse)(nil),   // 13: pfkeeper.v1.DeleteMembersResponse
-	(*TestAddressRequest)(nil),      // 14: pfkeeper.v1.TestAddressRequest
-	(*TestAddressResponse)(nil),     // 15: pfkeeper.v1.TestAddressResponse
-	(*GetAnchorsResponse)(nil),      // 16: pfkeeper.v1.GetAnchorsResponse
-	(*ValidateRequest)(nil),         // 17: pfkeeper.v1.ValidateRequest
-	(*ValidateResponse)(nil),        // 18: pfkeeper.v1.ValidateResponse
-	(*ApplyMainConfRequest)(nil),    // 19: pfkeeper.v1.ApplyMainConfRequest
-	(*ApplyMainConfResponse)(nil),   // 20: pfkeeper.v1.ApplyMainConfResponse
-	(*DiffResponse)(nil),            // 21: pfkeeper.v1.DiffResponse
-	(*ListHealthRequest)(nil),       // 22: pfkeeper.v1.ListHealthRequest
-	(*ListHealthResponse)(nil),      // 23: pfkeeper.v1.ListHealthResponse
-	(*InspectRequest)(nil),          // 24: pfkeeper.v1.InspectRequest
-	(*InspectResponse)(nil),         // 25: pfkeeper.v1.InspectResponse
-	(*ForceCheckRequest)(nil),       // 26: pfkeeper.v1.ForceCheckRequest
-	(*CarpStateResponse)(nil),       // 27: pfkeeper.v1.CarpStateResponse
-	(*PeerStateResponse)(nil),       // 28: pfkeeper.v1.PeerStateResponse
-	(*VersionResponse)(nil),         // 29: pfkeeper.v1.VersionResponse
-	(*SyncResponse)(nil),            // 30: pfkeeper.v1.SyncResponse
-	(*RollbackRequest)(nil),         // 31: pfkeeper.v1.RollbackRequest
-	(*RollbackResponse)(nil),        // 32: pfkeeper.v1.RollbackResponse
-	(*EffectiveConfigSnapshot)(nil), // 33: pfkeeper.v1.EffectiveConfigSnapshot
-	(*HealthView)(nil),              // 34: pfkeeper.v1.HealthView
-	(*SyncCheckRequest)(nil),        // 35: pfkeeper.v1.SyncCheckRequest
-	(*SyncCheckResponse)(nil),       // 36: pfkeeper.v1.SyncCheckResponse
-	(*RedirectWriteRequest)(nil),    // 37: pfkeeper.v1.RedirectWriteRequest
-	(*RedirectWriteResponse)(nil),   // 38: pfkeeper.v1.RedirectWriteResponse
-	(*HealthSpec_Expect)(nil),       // 39: pfkeeper.v1.HealthSpec.Expect
-	nil,                             // 40: pfkeeper.v1.GetAnchorsResponse.AnchorsEntry
-	nil,                             // 41: pfkeeper.v1.InspectResponse.HeadersEntry
-	nil,                             // 42: pfkeeper.v1.EffectiveConfigSnapshot.TablesEntry
-	nil,                             // 43: pfkeeper.v1.EffectiveConfigSnapshot.AnchorsEntry
-	(*timestamppb.Timestamp)(nil),   // 44: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),           // 45: google.protobuf.Empty
+	(*Member)(nil),                  // 1: pfkeeper.v1.Member
+	(*Table)(nil),                   // 2: pfkeeper.v1.Table
+	(*MemberHealth)(nil),            // 3: pfkeeper.v1.MemberHealth
+	(*PfStats)(nil),                 // 4: pfkeeper.v1.PfStats
+	(*TableDiff)(nil),               // 5: pfkeeper.v1.TableDiff
+	(*ListTablesResponse)(nil),      // 6: pfkeeper.v1.ListTablesResponse
+	(*GetTableRequest)(nil),         // 7: pfkeeper.v1.GetTableRequest
+	(*GetTableResponse)(nil),        // 8: pfkeeper.v1.GetTableResponse
+	(*SetTableRequest)(nil),         // 9: pfkeeper.v1.SetTableRequest
+	(*SetTableResponse)(nil),        // 10: pfkeeper.v1.SetTableResponse
+	(*AddMembersRequest)(nil),       // 11: pfkeeper.v1.AddMembersRequest
+	(*AddMembersResponse)(nil),      // 12: pfkeeper.v1.AddMembersResponse
+	(*DeleteMembersRequest)(nil),    // 13: pfkeeper.v1.DeleteMembersRequest
+	(*DeleteMembersResponse)(nil),   // 14: pfkeeper.v1.DeleteMembersResponse
+	(*SetMemberWeightRequest)(nil),  // 15: pfkeeper.v1.SetMemberWeightRequest
+	(*SetMemberWeightResponse)(nil), // 16: pfkeeper.v1.SetMemberWeightResponse
+	(*TestAddressRequest)(nil),      // 17: pfkeeper.v1.TestAddressRequest
+	(*TestAddressResponse)(nil),     // 18: pfkeeper.v1.TestAddressResponse
+	(*ServiceDef)(nil),              // 19: pfkeeper.v1.ServiceDef
+	(*ServiceMember)(nil),           // 20: pfkeeper.v1.ServiceMember
+	(*ListServicesResponse)(nil),    // 21: pfkeeper.v1.ListServicesResponse
+	(*GetServiceRequest)(nil),       // 22: pfkeeper.v1.GetServiceRequest
+	(*GetServiceResponse)(nil),      // 23: pfkeeper.v1.GetServiceResponse
+	(*GetAnchorsResponse)(nil),      // 24: pfkeeper.v1.GetAnchorsResponse
+	(*ValidateRequest)(nil),         // 25: pfkeeper.v1.ValidateRequest
+	(*ValidateResponse)(nil),        // 26: pfkeeper.v1.ValidateResponse
+	(*ApplyMainConfRequest)(nil),    // 27: pfkeeper.v1.ApplyMainConfRequest
+	(*ApplyMainConfResponse)(nil),   // 28: pfkeeper.v1.ApplyMainConfResponse
+	(*DiffResponse)(nil),            // 29: pfkeeper.v1.DiffResponse
+	(*ListHealthRequest)(nil),       // 30: pfkeeper.v1.ListHealthRequest
+	(*ListHealthResponse)(nil),      // 31: pfkeeper.v1.ListHealthResponse
+	(*InspectRequest)(nil),          // 32: pfkeeper.v1.InspectRequest
+	(*InspectResponse)(nil),         // 33: pfkeeper.v1.InspectResponse
+	(*ForceCheckRequest)(nil),       // 34: pfkeeper.v1.ForceCheckRequest
+	(*CarpStateResponse)(nil),       // 35: pfkeeper.v1.CarpStateResponse
+	(*PeerStateResponse)(nil),       // 36: pfkeeper.v1.PeerStateResponse
+	(*VersionResponse)(nil),         // 37: pfkeeper.v1.VersionResponse
+	(*SyncResponse)(nil),            // 38: pfkeeper.v1.SyncResponse
+	(*RollbackRequest)(nil),         // 39: pfkeeper.v1.RollbackRequest
+	(*RollbackResponse)(nil),        // 40: pfkeeper.v1.RollbackResponse
+	(*EffectiveConfigSnapshot)(nil), // 41: pfkeeper.v1.EffectiveConfigSnapshot
+	(*HealthView)(nil),              // 42: pfkeeper.v1.HealthView
+	(*SyncCheckRequest)(nil),        // 43: pfkeeper.v1.SyncCheckRequest
+	(*SyncCheckResponse)(nil),       // 44: pfkeeper.v1.SyncCheckResponse
+	(*RedirectWriteRequest)(nil),    // 45: pfkeeper.v1.RedirectWriteRequest
+	(*RedirectWriteResponse)(nil),   // 46: pfkeeper.v1.RedirectWriteResponse
+	(*HealthSpec_Expect)(nil),       // 47: pfkeeper.v1.HealthSpec.Expect
+	(*ServiceDef_Listen)(nil),       // 48: pfkeeper.v1.ServiceDef.Listen
+	nil,                             // 49: pfkeeper.v1.GetAnchorsResponse.AnchorsEntry
+	nil,                             // 50: pfkeeper.v1.InspectResponse.HeadersEntry
+	nil,                             // 51: pfkeeper.v1.EffectiveConfigSnapshot.TablesEntry
+	nil,                             // 52: pfkeeper.v1.EffectiveConfigSnapshot.AnchorsEntry
+	(*timestamppb.Timestamp)(nil),   // 53: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),           // 54: google.protobuf.Empty
 }
 var file_proto_v1_pfkeeper_proto_depIdxs = []int32{
-	39, // 0: pfkeeper.v1.HealthSpec.expect:type_name -> pfkeeper.v1.HealthSpec.Expect
+	47, // 0: pfkeeper.v1.HealthSpec.expect:type_name -> pfkeeper.v1.HealthSpec.Expect
 	0,  // 1: pfkeeper.v1.Table.health:type_name -> pfkeeper.v1.HealthSpec
-	44, // 2: pfkeeper.v1.MemberHealth.checked_at:type_name -> google.protobuf.Timestamp
-	44, // 3: pfkeeper.v1.PfStats.collected_at:type_name -> google.protobuf.Timestamp
-	1,  // 4: pfkeeper.v1.ListTablesResponse.tables:type_name -> pfkeeper.v1.Table
-	1,  // 5: pfkeeper.v1.GetTableResponse.table:type_name -> pfkeeper.v1.Table
-	40, // 6: pfkeeper.v1.GetAnchorsResponse.anchors:type_name -> pfkeeper.v1.GetAnchorsResponse.AnchorsEntry
-	4,  // 7: pfkeeper.v1.DiffResponse.tables:type_name -> pfkeeper.v1.TableDiff
-	2,  // 8: pfkeeper.v1.ListHealthResponse.members:type_name -> pfkeeper.v1.MemberHealth
-	2,  // 9: pfkeeper.v1.InspectResponse.member:type_name -> pfkeeper.v1.MemberHealth
-	41, // 10: pfkeeper.v1.InspectResponse.headers:type_name -> pfkeeper.v1.InspectResponse.HeadersEntry
-	42, // 11: pfkeeper.v1.EffectiveConfigSnapshot.tables:type_name -> pfkeeper.v1.EffectiveConfigSnapshot.TablesEntry
-	43, // 12: pfkeeper.v1.EffectiveConfigSnapshot.anchors:type_name -> pfkeeper.v1.EffectiveConfigSnapshot.AnchorsEntry
-	2,  // 13: pfkeeper.v1.HealthView.members:type_name -> pfkeeper.v1.MemberHealth
-	45, // 14: pfkeeper.v1.TableService.ListTables:input_type -> google.protobuf.Empty
-	6,  // 15: pfkeeper.v1.TableService.GetTable:input_type -> pfkeeper.v1.GetTableRequest
-	8,  // 16: pfkeeper.v1.TableService.SetTable:input_type -> pfkeeper.v1.SetTableRequest
-	10, // 17: pfkeeper.v1.TableService.AddMembers:input_type -> pfkeeper.v1.AddMembersRequest
-	12, // 18: pfkeeper.v1.TableService.DeleteMembers:input_type -> pfkeeper.v1.DeleteMembersRequest
-	14, // 19: pfkeeper.v1.TableService.TestAddress:input_type -> pfkeeper.v1.TestAddressRequest
-	45, // 20: pfkeeper.v1.RuleService.GetAnchors:input_type -> google.protobuf.Empty
-	17, // 21: pfkeeper.v1.RuleService.Validate:input_type -> pfkeeper.v1.ValidateRequest
-	19, // 22: pfkeeper.v1.RuleService.ApplyMainConf:input_type -> pfkeeper.v1.ApplyMainConfRequest
-	45, // 23: pfkeeper.v1.RuleService.Diff:input_type -> google.protobuf.Empty
-	22, // 24: pfkeeper.v1.HealthService.ListHealth:input_type -> pfkeeper.v1.ListHealthRequest
-	24, // 25: pfkeeper.v1.HealthService.Inspect:input_type -> pfkeeper.v1.InspectRequest
-	26, // 26: pfkeeper.v1.HealthService.ForceCheck:input_type -> pfkeeper.v1.ForceCheckRequest
-	45, // 27: pfkeeper.v1.StatusService.GetPfStats:input_type -> google.protobuf.Empty
-	45, // 28: pfkeeper.v1.StatusService.CarpState:input_type -> google.protobuf.Empty
-	45, // 29: pfkeeper.v1.StatusService.PeerState:input_type -> google.protobuf.Empty
-	45, // 30: pfkeeper.v1.StatusService.Version:input_type -> google.protobuf.Empty
-	45, // 31: pfkeeper.v1.AdminService.Sync:input_type -> google.protobuf.Empty
-	31, // 32: pfkeeper.v1.AdminService.Rollback:input_type -> pfkeeper.v1.RollbackRequest
-	33, // 33: pfkeeper.v1.PeeringService.PushConfig:input_type -> pfkeeper.v1.EffectiveConfigSnapshot
-	34, // 34: pfkeeper.v1.PeeringService.PublishHealth:input_type -> pfkeeper.v1.HealthView
-	35, // 35: pfkeeper.v1.PeeringService.SyncCheck:input_type -> pfkeeper.v1.SyncCheckRequest
-	37, // 36: pfkeeper.v1.PeeringService.RedirectWrite:input_type -> pfkeeper.v1.RedirectWriteRequest
-	5,  // 37: pfkeeper.v1.TableService.ListTables:output_type -> pfkeeper.v1.ListTablesResponse
-	7,  // 38: pfkeeper.v1.TableService.GetTable:output_type -> pfkeeper.v1.GetTableResponse
-	9,  // 39: pfkeeper.v1.TableService.SetTable:output_type -> pfkeeper.v1.SetTableResponse
-	11, // 40: pfkeeper.v1.TableService.AddMembers:output_type -> pfkeeper.v1.AddMembersResponse
-	13, // 41: pfkeeper.v1.TableService.DeleteMembers:output_type -> pfkeeper.v1.DeleteMembersResponse
-	15, // 42: pfkeeper.v1.TableService.TestAddress:output_type -> pfkeeper.v1.TestAddressResponse
-	16, // 43: pfkeeper.v1.RuleService.GetAnchors:output_type -> pfkeeper.v1.GetAnchorsResponse
-	18, // 44: pfkeeper.v1.RuleService.Validate:output_type -> pfkeeper.v1.ValidateResponse
-	20, // 45: pfkeeper.v1.RuleService.ApplyMainConf:output_type -> pfkeeper.v1.ApplyMainConfResponse
-	21, // 46: pfkeeper.v1.RuleService.Diff:output_type -> pfkeeper.v1.DiffResponse
-	23, // 47: pfkeeper.v1.HealthService.ListHealth:output_type -> pfkeeper.v1.ListHealthResponse
-	25, // 48: pfkeeper.v1.HealthService.Inspect:output_type -> pfkeeper.v1.InspectResponse
-	2,  // 49: pfkeeper.v1.HealthService.ForceCheck:output_type -> pfkeeper.v1.MemberHealth
-	3,  // 50: pfkeeper.v1.StatusService.GetPfStats:output_type -> pfkeeper.v1.PfStats
-	27, // 51: pfkeeper.v1.StatusService.CarpState:output_type -> pfkeeper.v1.CarpStateResponse
-	28, // 52: pfkeeper.v1.StatusService.PeerState:output_type -> pfkeeper.v1.PeerStateResponse
-	29, // 53: pfkeeper.v1.StatusService.Version:output_type -> pfkeeper.v1.VersionResponse
-	30, // 54: pfkeeper.v1.AdminService.Sync:output_type -> pfkeeper.v1.SyncResponse
-	32, // 55: pfkeeper.v1.AdminService.Rollback:output_type -> pfkeeper.v1.RollbackResponse
-	45, // 56: pfkeeper.v1.PeeringService.PushConfig:output_type -> google.protobuf.Empty
-	45, // 57: pfkeeper.v1.PeeringService.PublishHealth:output_type -> google.protobuf.Empty
-	36, // 58: pfkeeper.v1.PeeringService.SyncCheck:output_type -> pfkeeper.v1.SyncCheckResponse
-	38, // 59: pfkeeper.v1.PeeringService.RedirectWrite:output_type -> pfkeeper.v1.RedirectWriteResponse
-	37, // [37:60] is the sub-list for method output_type
-	14, // [14:37] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	1,  // 2: pfkeeper.v1.Table.members_detailed:type_name -> pfkeeper.v1.Member
+	53, // 3: pfkeeper.v1.MemberHealth.checked_at:type_name -> google.protobuf.Timestamp
+	53, // 4: pfkeeper.v1.PfStats.collected_at:type_name -> google.protobuf.Timestamp
+	2,  // 5: pfkeeper.v1.ListTablesResponse.tables:type_name -> pfkeeper.v1.Table
+	2,  // 6: pfkeeper.v1.GetTableResponse.table:type_name -> pfkeeper.v1.Table
+	48, // 7: pfkeeper.v1.ServiceDef.listen:type_name -> pfkeeper.v1.ServiceDef.Listen
+	19, // 8: pfkeeper.v1.ListServicesResponse.services:type_name -> pfkeeper.v1.ServiceDef
+	19, // 9: pfkeeper.v1.GetServiceResponse.service:type_name -> pfkeeper.v1.ServiceDef
+	20, // 10: pfkeeper.v1.GetServiceResponse.members:type_name -> pfkeeper.v1.ServiceMember
+	49, // 11: pfkeeper.v1.GetAnchorsResponse.anchors:type_name -> pfkeeper.v1.GetAnchorsResponse.AnchorsEntry
+	5,  // 12: pfkeeper.v1.DiffResponse.tables:type_name -> pfkeeper.v1.TableDiff
+	3,  // 13: pfkeeper.v1.ListHealthResponse.members:type_name -> pfkeeper.v1.MemberHealth
+	3,  // 14: pfkeeper.v1.InspectResponse.member:type_name -> pfkeeper.v1.MemberHealth
+	50, // 15: pfkeeper.v1.InspectResponse.headers:type_name -> pfkeeper.v1.InspectResponse.HeadersEntry
+	51, // 16: pfkeeper.v1.EffectiveConfigSnapshot.tables:type_name -> pfkeeper.v1.EffectiveConfigSnapshot.TablesEntry
+	52, // 17: pfkeeper.v1.EffectiveConfigSnapshot.anchors:type_name -> pfkeeper.v1.EffectiveConfigSnapshot.AnchorsEntry
+	3,  // 18: pfkeeper.v1.HealthView.members:type_name -> pfkeeper.v1.MemberHealth
+	54, // 19: pfkeeper.v1.TableService.ListTables:input_type -> google.protobuf.Empty
+	7,  // 20: pfkeeper.v1.TableService.GetTable:input_type -> pfkeeper.v1.GetTableRequest
+	9,  // 21: pfkeeper.v1.TableService.SetTable:input_type -> pfkeeper.v1.SetTableRequest
+	11, // 22: pfkeeper.v1.TableService.AddMembers:input_type -> pfkeeper.v1.AddMembersRequest
+	13, // 23: pfkeeper.v1.TableService.DeleteMembers:input_type -> pfkeeper.v1.DeleteMembersRequest
+	15, // 24: pfkeeper.v1.TableService.SetMemberWeight:input_type -> pfkeeper.v1.SetMemberWeightRequest
+	17, // 25: pfkeeper.v1.TableService.TestAddress:input_type -> pfkeeper.v1.TestAddressRequest
+	54, // 26: pfkeeper.v1.ServiceService.ListServices:input_type -> google.protobuf.Empty
+	22, // 27: pfkeeper.v1.ServiceService.GetService:input_type -> pfkeeper.v1.GetServiceRequest
+	54, // 28: pfkeeper.v1.RuleService.GetAnchors:input_type -> google.protobuf.Empty
+	25, // 29: pfkeeper.v1.RuleService.Validate:input_type -> pfkeeper.v1.ValidateRequest
+	27, // 30: pfkeeper.v1.RuleService.ApplyMainConf:input_type -> pfkeeper.v1.ApplyMainConfRequest
+	54, // 31: pfkeeper.v1.RuleService.Diff:input_type -> google.protobuf.Empty
+	30, // 32: pfkeeper.v1.HealthService.ListHealth:input_type -> pfkeeper.v1.ListHealthRequest
+	32, // 33: pfkeeper.v1.HealthService.Inspect:input_type -> pfkeeper.v1.InspectRequest
+	34, // 34: pfkeeper.v1.HealthService.ForceCheck:input_type -> pfkeeper.v1.ForceCheckRequest
+	54, // 35: pfkeeper.v1.StatusService.GetPfStats:input_type -> google.protobuf.Empty
+	54, // 36: pfkeeper.v1.StatusService.CarpState:input_type -> google.protobuf.Empty
+	54, // 37: pfkeeper.v1.StatusService.PeerState:input_type -> google.protobuf.Empty
+	54, // 38: pfkeeper.v1.StatusService.Version:input_type -> google.protobuf.Empty
+	54, // 39: pfkeeper.v1.AdminService.Sync:input_type -> google.protobuf.Empty
+	39, // 40: pfkeeper.v1.AdminService.Rollback:input_type -> pfkeeper.v1.RollbackRequest
+	41, // 41: pfkeeper.v1.PeeringService.PushConfig:input_type -> pfkeeper.v1.EffectiveConfigSnapshot
+	42, // 42: pfkeeper.v1.PeeringService.PublishHealth:input_type -> pfkeeper.v1.HealthView
+	43, // 43: pfkeeper.v1.PeeringService.SyncCheck:input_type -> pfkeeper.v1.SyncCheckRequest
+	45, // 44: pfkeeper.v1.PeeringService.RedirectWrite:input_type -> pfkeeper.v1.RedirectWriteRequest
+	6,  // 45: pfkeeper.v1.TableService.ListTables:output_type -> pfkeeper.v1.ListTablesResponse
+	8,  // 46: pfkeeper.v1.TableService.GetTable:output_type -> pfkeeper.v1.GetTableResponse
+	10, // 47: pfkeeper.v1.TableService.SetTable:output_type -> pfkeeper.v1.SetTableResponse
+	12, // 48: pfkeeper.v1.TableService.AddMembers:output_type -> pfkeeper.v1.AddMembersResponse
+	14, // 49: pfkeeper.v1.TableService.DeleteMembers:output_type -> pfkeeper.v1.DeleteMembersResponse
+	16, // 50: pfkeeper.v1.TableService.SetMemberWeight:output_type -> pfkeeper.v1.SetMemberWeightResponse
+	18, // 51: pfkeeper.v1.TableService.TestAddress:output_type -> pfkeeper.v1.TestAddressResponse
+	21, // 52: pfkeeper.v1.ServiceService.ListServices:output_type -> pfkeeper.v1.ListServicesResponse
+	23, // 53: pfkeeper.v1.ServiceService.GetService:output_type -> pfkeeper.v1.GetServiceResponse
+	24, // 54: pfkeeper.v1.RuleService.GetAnchors:output_type -> pfkeeper.v1.GetAnchorsResponse
+	26, // 55: pfkeeper.v1.RuleService.Validate:output_type -> pfkeeper.v1.ValidateResponse
+	28, // 56: pfkeeper.v1.RuleService.ApplyMainConf:output_type -> pfkeeper.v1.ApplyMainConfResponse
+	29, // 57: pfkeeper.v1.RuleService.Diff:output_type -> pfkeeper.v1.DiffResponse
+	31, // 58: pfkeeper.v1.HealthService.ListHealth:output_type -> pfkeeper.v1.ListHealthResponse
+	33, // 59: pfkeeper.v1.HealthService.Inspect:output_type -> pfkeeper.v1.InspectResponse
+	3,  // 60: pfkeeper.v1.HealthService.ForceCheck:output_type -> pfkeeper.v1.MemberHealth
+	4,  // 61: pfkeeper.v1.StatusService.GetPfStats:output_type -> pfkeeper.v1.PfStats
+	35, // 62: pfkeeper.v1.StatusService.CarpState:output_type -> pfkeeper.v1.CarpStateResponse
+	36, // 63: pfkeeper.v1.StatusService.PeerState:output_type -> pfkeeper.v1.PeerStateResponse
+	37, // 64: pfkeeper.v1.StatusService.Version:output_type -> pfkeeper.v1.VersionResponse
+	38, // 65: pfkeeper.v1.AdminService.Sync:output_type -> pfkeeper.v1.SyncResponse
+	40, // 66: pfkeeper.v1.AdminService.Rollback:output_type -> pfkeeper.v1.RollbackResponse
+	54, // 67: pfkeeper.v1.PeeringService.PushConfig:output_type -> google.protobuf.Empty
+	54, // 68: pfkeeper.v1.PeeringService.PublishHealth:output_type -> google.protobuf.Empty
+	44, // 69: pfkeeper.v1.PeeringService.SyncCheck:output_type -> pfkeeper.v1.SyncCheckResponse
+	46, // 70: pfkeeper.v1.PeeringService.RedirectWrite:output_type -> pfkeeper.v1.RedirectWriteResponse
+	45, // [45:71] is the sub-list for method output_type
+	19, // [19:45] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_proto_v1_pfkeeper_proto_init() }
@@ -2622,9 +3227,9 @@ func file_proto_v1_pfkeeper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_v1_pfkeeper_proto_rawDesc), len(file_proto_v1_pfkeeper_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   44,
+			NumMessages:   53,
 			NumExtensions: 0,
-			NumServices:   6,
+			NumServices:   7,
 		},
 		GoTypes:           file_proto_v1_pfkeeper_proto_goTypes,
 		DependencyIndexes: file_proto_v1_pfkeeper_proto_depIdxs,

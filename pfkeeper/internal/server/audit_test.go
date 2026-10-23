@@ -55,7 +55,7 @@ func TestAuditRecordFields(t *testing.T) {
 		"event":   "audit",
 		"actor":   "operator1",
 		"method":  "/pfkeeper.v1.TableService/SetTable",
-		"params":  "table=web,reason=scale-up",
+		"params":  "reason=scale-up,table=web",
 		"outcome": "ok commit=abc123",
 	} {
 		if got := rec[key]; got != want {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/health"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/pfctl"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/render"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
 
@@ -128,7 +129,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 			{match: "-t web -T show", out: "10.0.0.1\n10.0.0.2\n"},
 		}}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-		st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1", "10.0.0.2"}})
+		st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers("10.0.0.1", "10.0.0.2")})
 		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
@@ -146,7 +147,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 			{match: "-t web -T show", out: "10.0.0.1\n10.0.0.2\n10.0.0.3\n"},
 		}}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-		st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1"}})
+		st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers("10.0.0.1")})
 		res, err := rec.Reconcile(ctx, st, "abc123", nil)
 		if err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
@@ -170,7 +171,7 @@ func TestReconcileReplaceOnlyOnDiff(t *testing.T) {
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
 
 		st := testState(t,
-			state.TableDef{Name: "db", Members: []string{"10.0.0.9"}},
+			state.TableDef{Name: "db", Members: state.PlainMembers("10.0.0.9")},
 			state.TableDef{Name: "empty", Members: nil},
 		)
 		res, err := rec.Reconcile(ctx, st, "abc123", nil)
@@ -250,7 +251,7 @@ func TestDetectDriftReadOnly(t *testing.T) {
 		{match: "-a " + AnchorName("web") + " -sr", out: "stale rules"},
 	}}
 	rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-	st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1"}})
+	st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers("10.0.0.1")})
 	st.Anchors["web"] = "pass in quick to <web>"
 
 	diffs, err := rec.DetectDrift(ctx, st, nil)
@@ -413,7 +414,7 @@ func TestSharedMutexSerializes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st := testState(t, state.TableDef{Name: "web", Members: []string{"10.0.0.1", "10.0.0.2"}})
+	st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers("10.0.0.1", "10.0.0.2")})
 	local := map[string]string{"10.0.0.1": health.StateUP, "10.0.0.2": health.StateUP}
 
 	var wg sync.WaitGroup
@@ -425,7 +426,7 @@ func TestSharedMutexSerializes(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, _ = hc.ApplyEffective(context.Background(), "web", st.Tables[0].Members, local, nil, false)
+			_, _ = hc.ApplyEffective(context.Background(), "web", state.Addrs(st.Tables[0].Members), local, nil, false)
 		}()
 	}
 	wg.Wait()
@@ -542,7 +543,7 @@ func TestDriftRespectsHealthy(t *testing.T) {
 			},
 		}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers(desired...)})
 		healthy := HealthyView{"web": {"10.0.0.22": true}} // .21 is DOWN
 
 		diffs, err := rec.DetectDrift(context.Background(), st, healthy)
@@ -591,7 +592,7 @@ func TestDriftRespectsHealthy(t *testing.T) {
 			},
 		}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers(desired...)})
 		if _, err := rec.Reconcile(context.Background(), st, "rev", nil); err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -617,7 +618,7 @@ func TestDriftRespectsHealthy(t *testing.T) {
 			},
 		}
 		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
-		st := testState(t, state.TableDef{Name: "web", Members: desired})
+		st := testState(t, state.TableDef{Name: "web", Members: state.PlainMembers(desired...)})
 		if _, err := rec.Reconcile(context.Background(), st, "rev", HealthyView{"other": {"1.1.1.1": true}}); err != nil {
 			t.Fatalf("Reconcile() error = %v", err)
 		}
@@ -663,4 +664,234 @@ func TestAndConsensusBothViewsAgree(t *testing.T) {
 	if fr.countCalls("-T delete 192.168.100.22") != 0 {
 		t.Fatal("healthy .22 must not be deleted")
 	}
+}
+
+// labService builds the PoC web service (5:3:2 over table webs).
+func labService() (state.ServiceDef, state.TableDef) {
+	sd := state.ServiceDef{
+		Service: "web",
+		Table:   "webs",
+		Mode:    state.ModeWeighted,
+		Listen:  state.ListenDef{Iface: "vtnet0", VIP: "192.168.100.200", Port: 80, Proto: "tcp"},
+	}
+	td := state.TableDef{
+		Name: "webs",
+		Members: []state.MemberDef{
+			{Addr: "192.168.100.21", Weight: 5},
+			{Addr: "192.168.100.22", Weight: 3},
+			{Addr: "192.168.100.23", Weight: 2},
+		},
+	}
+	return sd, td
+}
+
+// TestReconcileServiceAnchors: rendered service anchors flow through the
+// SAME anchor mechanism as rules/*.conf (drift compare + LoadAnchor).
+func TestReconcileServiceAnchors(t *testing.T) {
+	ctx := context.Background()
+	sd, td := labService()
+
+	t.Run("weighted chain loaded into pfkeeper/<service>", func(t *testing.T) {
+		var loaded string
+		fr := &fakeRunner{Capture: func(joined string, args []string) {
+			// LoadAnchor argv ends with the temp file; read it before the
+			// (no-op) rules answer.
+			if strings.Contains(joined, "-a "+AnchorName("web")+" -f ") {
+				b, err := os.ReadFile(args[len(args)-1])
+				if err != nil {
+					t.Errorf("read anchor payload: %v", err)
+					return
+				}
+				loaded = string(b)
+			}
+		}}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, td)
+		st.Services = []state.ServiceDef{sd}
+
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
+		if err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if res.AnchorsApplied != 1 || !res.Drift {
+			t.Fatalf("res = %+v, want the service anchor applied with drift", res)
+		}
+		want := "pass in quick on vtnet0 route-to (vtnet0 192.168.100.21) proto tcp to 192.168.100.200 port 80 probability 50.0% keep state (sloppy)\n" +
+			"pass in quick on vtnet0 route-to (vtnet0 192.168.100.22) proto tcp to 192.168.100.200 port 80 probability 60.0% keep state (sloppy)\n" +
+			"pass in quick on vtnet0 route-to (vtnet0 192.168.100.23) proto tcp to 192.168.100.200 port 80 keep state (sloppy)\n"
+		if loaded != want {
+			t.Fatalf("loaded anchor =\n%s\nwant\n%s", loaded, want)
+		}
+		if len(res.Services) != 1 || len(res.Services[0].Members) != 3 {
+			t.Fatalf("res.Services = %+v, want one 3-member plan", res.Services)
+		}
+		// The rendered anchor is merged into st.Anchors (peer snapshot picks
+		// it up from there).
+		if st.Anchors["web"] == "" {
+			t.Fatal("rendered anchor not merged into st.Anchors")
+		}
+	})
+
+	t.Run("unchanged chain is not reloaded", func(t *testing.T) {
+		sd, td := labService()
+		plan, err := render.Service(sd, td, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fr := &fakeRunner{rules: []fakeRule{
+			{match: "-t webs -T show", out: "192.168.100.21\n192.168.100.22\n192.168.100.23\n"},
+			{match: "-a " + AnchorName("web") + " -sr", out: strings.TrimRight(plan.Rules, "\n")},
+		}}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, td)
+		st.Services = []state.ServiceDef{sd}
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
+		if err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if res.AnchorsApplied != 0 || res.Drift {
+			t.Fatalf("res = %+v, want clean", res)
+		}
+	})
+
+	t.Run("health view renormalizes the chain", func(t *testing.T) {
+		var loaded string
+		fr := &fakeRunner{Capture: func(joined string, args []string) {
+			if strings.Contains(joined, "-a "+AnchorName("web")+" -f ") {
+				b, _ := os.ReadFile(args[len(args)-1])
+				loaded = string(b)
+			}
+		}}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		sd, td := labService()
+		st := testState(t, td)
+		st.Services = []state.ServiceDef{sd}
+		// .21 DOWN: 3:2 renormalize, .21 loses its rule.
+		healthy := HealthyView{"webs": {"192.168.100.21": false, "192.168.100.22": true, "192.168.100.23": true}}
+		if _, err := rec.Reconcile(ctx, st, "abc123", healthy); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		if strings.Contains(loaded, "192.168.100.21") {
+			t.Fatalf("unhealthy member still routed:\n%s", loaded)
+		}
+		if !strings.Contains(loaded, "route-to (vtnet0 192.168.100.22) proto tcp to 192.168.100.200 port 80 probability 60.0%") {
+			t.Fatalf("renormalized chain wrong:\n%s", loaded)
+		}
+	})
+
+	t.Run("degraded service renders an empty anchor", func(t *testing.T) {
+		drained := td
+		for i := range drained.Members {
+			drained.Members[i].Weight = 0
+		}
+		fr := &fakeRunner{}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, drained)
+		st.Services = []state.ServiceDef{sd}
+		res, err := rec.Reconcile(ctx, st, "abc123", nil)
+		if err != nil {
+			t.Fatalf("Reconcile() error = %v, want nil (degraded is not fatal)", err)
+		}
+		if len(res.Services) != 1 || !res.Services[0].Degraded {
+			t.Fatalf("res.Services = %+v, want one degraded plan", res.Services)
+		}
+		if st.Anchors["web"] != "" {
+			t.Fatalf("degraded anchor = %q, want empty", st.Anchors["web"])
+		}
+	})
+
+	t.Run("missing table fails the pass", func(t *testing.T) {
+		fr := &fakeRunner{}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t)
+		sd := sd
+		sd.Table = "ghost"
+		st.Services = []state.ServiceDef{sd}
+		if _, err := rec.Reconcile(ctx, st, "abc123", nil); err == nil {
+			t.Fatal("Reconcile(missing table) error = nil, want error")
+		}
+	})
+}
+
+// drainedTable copies td with the weights renormalized per the health view
+// (used to teach the fake pf what was just loaded).
+func drainedTable(td state.TableDef, healthy map[string]bool) state.TableDef {
+	out := td
+	out.Members = append([]state.MemberDef(nil), td.Members...)
+	for i := range out.Members {
+		if !healthy[out.Members[i].Addr] {
+			out.Members[i].Weight = 0
+		}
+	}
+	return out
+}
+
+// TestApplyServicesRerender: the health-transition path re-renders the
+// service anchors and re-applies only the drifted ones.
+func TestApplyServicesRerender(t *testing.T) {
+	ctx := context.Background()
+	sd, td := labService()
+
+	t.Run("health flip reloads the anchor", func(t *testing.T) {
+		plan, err := render.Service(sd, td, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Live pf still carries the all-healthy chain.
+		fr := &fakeRunner{rules: []fakeRule{
+			{match: "-a " + AnchorName("web") + " -sr", out: strings.TrimRight(plan.Rules, "\n")},
+		}}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+
+		// .21 went DOWN: the rendered chain shrinks -> drift -> reload.
+		healthy := HealthyView{"webs": {"192.168.100.21": false, "192.168.100.22": true, "192.168.100.23": true}}
+		st := testState(t, td)
+		st.Services = []state.ServiceDef{sd}
+		plans, applied, err := rec.ApplyServices(ctx, st, healthy)
+		if err != nil {
+			t.Fatalf("ApplyServices() error = %v", err)
+		}
+		if applied != 1 {
+			t.Fatalf("applied = %d, want 1", applied)
+		}
+		if len(plans[0].Members) != 2 {
+			t.Fatalf("plan members = %d, want 2 after drain", len(plans[0].Members))
+		}
+		if fr.countCalls("-a "+AnchorName("web")+" -f ") != 1 {
+			t.Fatal("drifted service anchor not reloaded")
+		}
+
+		// A second pass with the same view is a no-op (converged): teach the
+		// fake pf to answer with the chain we just loaded.
+		plan2, err := render.Service(sd, drainedTable(td, healthy["webs"]), healthy["webs"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		fr.rules[0].out = strings.TrimRight(plan2.Rules, "\n")
+		_, applied, err = rec.ApplyServices(ctx, st, healthy)
+		if err != nil {
+			t.Fatalf("ApplyServices() #2 error = %v", err)
+		}
+		if applied != 0 {
+			t.Fatalf("applied #2 = %d, want 0 (converged)", applied)
+		}
+	})
+
+	t.Run("rules anchors are not touched by ApplyServices", func(t *testing.T) {
+		fr := &fakeRunner{rules: []fakeRule{
+			// Live manual anchor differs from the state one; ApplyServices
+			// must NOT reload it (that is Reconcile's job).
+			{match: "-a " + AnchorName("manual") + " -sr", out: "stale"},
+		}}
+		rec := NewConfigReconciler(pfctl.NewClient("/sbin/pfctl", fr), nil, &state.Store{Dir: t.TempDir()}, true)
+		st := testState(t, td)
+		st.Services = []state.ServiceDef{sd}
+		st.Anchors["manual"] = "pass in from any to <webs>"
+		if _, _, err := rec.ApplyServices(ctx, st, nil); err != nil {
+			t.Fatalf("ApplyServices() error = %v", err)
+		}
+		if fr.countCalls("-a "+AnchorName("manual")+" -f ") != 0 {
+			t.Fatal("ApplyServices reloaded a manual rules anchor")
+		}
+	})
 }

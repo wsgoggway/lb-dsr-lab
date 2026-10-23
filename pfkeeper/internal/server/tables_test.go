@@ -6,11 +6,16 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -154,4 +159,94 @@ func (r *fakePfRunner) Run(_ context.Context, _ string, _ ...string) (string, er
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// gitRun is the exec-git fixture helper (mirrors state/store_test.go).
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=tester", "GIT_AUTHOR_EMAIL=tester@lab",
+		"GIT_COMMITTER_NAME=tester", "GIT_COMMITTER_EMAIL=tester@lab",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
+}
+
+// TestSetMemberWeightLocal: the weight mutation goes through the regular
+// pipeline (validate -> write -> commit with actor), preserves the weights
+// of the other members and rejects unknown members and out-of-range weights.
+func TestSetMemberWeightLocal(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	bare := filepath.Join(root, "origin.git")
+	gitRun(t, root, "init", "--bare", "-b", "main", bare)
+
+	seed := filepath.Join(root, "seed")
+	if err := os.MkdirAll(filepath.Join(seed, "tables"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seed, "tables", "web.yaml"), []byte(
+		"name: web\nmembers:\n  - addr: 192.168.100.21\n    weight: 5\n  - addr: 192.168.100.22\n    weight: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, seed, "init", "-b", "main")
+	gitRun(t, seed, "add", ".")
+	gitRun(t, seed, "commit", "-m", "seed: weighted table")
+	gitRun(t, seed, "remote", "add", "origin", bare)
+	gitRun(t, seed, "push", "-u", "origin", "main")
+
+	work := filepath.Join(root, "work")
+	store := &state.Store{Dir: work, Remote: bare, Branch: "main"}
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("store ensure: %v", err)
+	}
+	pf := pfctl.NewClient("/sbin/pfctl", &fakePfRunner{})
+	rec := reconcile.NewConfigReconciler(pf, nil, store, true)
+	s := New(Config{Pf: pf, Store: store, Rec: rec, Audit: discardLogger()})
+
+	resp, err := s.SetMemberWeight(ctx, &pfkeeperv1.SetMemberWeightRequest{
+		Table: "web", Address: "192.168.100.21", Weight: 0, Reason: "drain rs1",
+	})
+	if err != nil {
+		t.Fatalf("SetMemberWeight() error = %v", err)
+	}
+	if resp.GetCommit() == "" {
+		t.Fatal("commit is empty, want the mutation commit")
+	}
+
+	st, err := state.LoadState(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	weights := map[string]int{}
+	for _, m := range st.Tables[0].Members {
+		weights[m.Addr] = m.Weight
+	}
+	if weights["192.168.100.21"] != 0 || weights["192.168.100.22"] != 3 {
+		t.Fatalf("weights after mutation = %v, want {21:0 drain, 22:3 preserved}", weights)
+	}
+
+	// Unknown member -> InvalidArgument.
+	if _, err := s.SetMemberWeight(ctx, &pfkeeperv1.SetMemberWeightRequest{
+		Table: "web", Address: "10.9.9.9", Weight: 1,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("unknown member error = %v, want InvalidArgument", err)
+	}
+	// Out-of-range weight -> InvalidArgument.
+	if _, err := s.SetMemberWeight(ctx, &pfkeeperv1.SetMemberWeightRequest{
+		Table: "web", Address: "192.168.100.21", Weight: 101,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("weight 101 error = %v, want InvalidArgument", err)
+	}
+	// Empty table -> InvalidArgument.
+	if _, err := s.SetMemberWeight(ctx, &pfkeeperv1.SetMemberWeightRequest{
+		Address: "192.168.100.21", Weight: 1,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty table error = %v, want InvalidArgument", err)
+	}
 }

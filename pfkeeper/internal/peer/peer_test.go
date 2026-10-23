@@ -17,7 +17,9 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	pfkeeperv1 "github.com/wsgoggway/lb-dsr-lab/pfkeeper/api/pfkeeperv1"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/metrics"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/pfctl"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/reconcile"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
@@ -592,7 +594,7 @@ func (a *snapshotApplier) Reconcile(_ context.Context, st *state.State, rev stri
 	a.calls++
 	for _, td := range st.Tables {
 		for _, m := range td.Members {
-			a.sim.Run(context.Background(), "pfctl", "-t", td.Name, "-T", "add", m) //nolint:errcheck // simulator
+			a.sim.Run(context.Background(), "pfctl", "-t", td.Name, "-T", "add", m.Addr) //nolint:errcheck // simulator
 		}
 	}
 	return reconcile.ReconcileResult{Revision: rev}, nil
@@ -657,5 +659,65 @@ func TestBackupSnapshotPrunedByLocalHealth(t *testing.T) {
 	}
 	if n := sim.count("-T delete " + mDown); n < 2 {
 		t.Fatalf("DOWN member deleted %d times, want >=2 (once per snapshot)", n)
+	}
+}
+
+// TestTickPublishesPeerMetrics: SetPeer was dead code before v1.1 — the loop
+// must now publish reachable/diverged/lag on every tick, success or failure.
+func TestTickPublishesPeerMetrics(t *testing.T) {
+	ctx := context.Background()
+	fp := &fakePeer{}
+	cli := startPeer(t, fp)
+	defer cli.Close()
+	c := newController(t, "MASTER", cli, seedStore(t), &fakeApplier{}, nil)
+	m := metrics.New("test")
+	c.Metrics = m
+
+	c.tickOnce(ctx)
+	if got := testutil.ToFloat64(m.PeerReachable); got != 1 {
+		t.Fatalf("peer_reachable after good tick = %v, want 1", got)
+	}
+
+	fp.setFail(true)
+	c.tickOnce(ctx)
+	if got := testutil.ToFloat64(m.PeerReachable); got != 0 {
+		t.Fatalf("peer_reachable after failed tick = %v, want 0", got)
+	}
+	// The peer was seen reachable one tick ago: lag is 0 seconds (the
+	// -1 "never reachable" branch only fires before the first success).
+	if got := testutil.ToFloat64(m.PeerLagSeconds); got != 0 {
+		t.Fatalf("peer_lag_seconds after failure = %v, want 0", got)
+	}
+}
+
+// TestBuildSnapshotCarriesRenderedAnchors: the snapshot pushed to the BACKUP
+// contains the health-rendered weighted chains, not the raw git anchors.
+func TestBuildSnapshotCarriesRenderedAnchors(t *testing.T) {
+	ctx := context.Background()
+	store := seedStore(t)
+	if err := os.MkdirAll(filepath.Join(store.Dir, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "tables", "web.yaml"),
+		[]byte("name: web\nmembers:\n  - addr: 10.0.0.1\n    weight: 5\n  - addr: 10.0.0.2\n    weight: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "services", "web.yaml"),
+		[]byte("service: web\ntable: web\nmode: weighted\nlisten:\n  iface: vtnet0\n  vip: 10.0.0.200\n  port: 80\n  proto: tcp\nsticky: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newController(t, "MASTER", &PeerClient{}, store, &fakeApplier{}, nil)
+	// Local view: 10.0.0.1 healthy (the drained .2 has no opinion entry).
+	c.SetLocalView(map[string]string{"web/10.0.0.1": "UP"})
+
+	snap := c.BuildSnapshot(ctx, "hash", "rev")
+	rules, ok := snap.GetAnchors()["web"]
+	if !ok {
+		t.Fatalf("snapshot anchors = %v, want the rendered service anchor", snap.GetAnchors())
+	}
+	want := "pass in quick on vtnet0 route-to (vtnet0 10.0.0.1) proto tcp to 10.0.0.200 port 80 keep state (sloppy)\n"
+	if rules != want {
+		t.Fatalf("snapshot anchor =\n%s\nwant\n%s", rules, want)
 	}
 }

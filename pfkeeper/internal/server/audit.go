@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -16,9 +17,14 @@ func Audit(logger *slog.Logger, actorCN, method string, params map[string]string
 	attrs := make([]any, 0, 8)
 	attrs = append(attrs, "event", "audit", "actor", actorCN, "method", method)
 	if len(params) > 0 {
+		keys := make([]string, 0, len(params))
+		for k := range params {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys) // deterministic audit lines (greppable, testable)
 		pairs := make([]string, 0, len(params))
-		for k, v := range params {
-			pairs = append(pairs, k+"="+v)
+		for _, k := range keys {
+			pairs = append(pairs, k+"="+params[k])
 		}
 		attrs = append(attrs, "params", strings.Join(pairs, ","))
 	}

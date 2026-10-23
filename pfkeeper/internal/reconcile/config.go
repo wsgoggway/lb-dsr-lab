@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/pfctl"
+	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/render"
 	"github.com/wsgoggway/lb-dsr-lab/pfkeeper/internal/state"
 )
 
@@ -35,6 +36,10 @@ type ReconcileResult struct {
 	AnchorsApplied int // LoadAnchor calls actually issued
 	Drift          bool
 	Diffs          []pfctl.TableDiff
+	// Services are the rendered service plans of this pass (the service
+	// anchors are merged into st.Anchors and applied by the regular anchor
+	// loop); callers publish them as the service_probability gauge.
+	Services []render.Plan
 }
 
 // ConfigReconciler diffs the desired state against live pf and applies it.
@@ -96,14 +101,25 @@ func allowedMembers(desired []string, healthy map[string]bool) []string {
 //     replace is allowed only for a table that already exists);
 //   - tables present in pf but absent from the desired state are untouched;
 //   - each desired anchor (rules/*.conf) is loaded into pfkeeper/<name> when
-//     its live rules differ.
+//     its live rules differ; the anchors of the desired services
+//     (state.ServiceDef) are rendered first (render.All, health-filtered and
+//     therefore re-derived on every pass) and merged into st.Anchors under
+//     the anchor name = service name, so they flow through the very same
+//     drift-compare + LoadAnchor mechanism.
 //
-// healthy == nil means config mode: every desired member is allowed.
+// healthy == nil means config mode: every desired member is allowed. The
+// rendered plans are reported in the result for metrics/observability.
 func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revision string, healthy HealthyView) (ReconcileResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	res := ReconcileResult{Revision: revision}
+
+	plans, err := render.All(st, healthy)
+	if err != nil {
+		return res, fmt.Errorf("reconcile services: %w", err)
+	}
+	res.Services = plans
 
 	diffs, anchorDrift, err := r.detectLocked(ctx, st, healthy)
 	if err != nil {
@@ -114,7 +130,7 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revis
 
 	// Tables.
 	for _, td := range st.Tables {
-		allowed := allowedMembers(td.Members, healthy[td.Name])
+		allowed := allowedMembers(state.Addrs(td.Members), healthy[td.Name])
 		current, exists, err := r.currentTable(ctx, td.Name)
 		if err != nil {
 			return res, fmt.Errorf("reconcile table %q: %w", td.Name, err)
@@ -152,19 +168,56 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, st *state.State, revis
 // DetectDrift reports desired-vs-live differences per desired table without
 // mutating anything (used for the drift metric and SyncCheck). Drift is
 // computed against ALLOWED = desired ∩ healthy (see Reconcile); healthy ==
-// nil means config mode.
+// nil means config mode. Service anchors are rendered into st.Anchors first,
+// so their health-dependent drift is part of the answer.
 func (r *ConfigReconciler) DetectDrift(ctx context.Context, st *state.State, healthy HealthyView) ([]pfctl.TableDiff, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, err := render.All(st, healthy); err != nil {
+		return nil, fmt.Errorf("drift services: %w", err)
+	}
 	diffs, _, err := r.detectLocked(ctx, st, healthy)
 	return diffs, err
+}
+
+// ApplyServices re-renders the service anchors for st (the health-transition
+// path: weighted chains reference member addresses inline, so a member flip
+// must regenerate the chain, not only the table membership) and re-applies
+// exactly those anchors that drifted from live pf — same drift-compare and
+// LoadAnchor path as Reconcile. It takes the shared pfctl mutation mutex.
+// Returns the rendered plans (for the service_probability gauge) and the
+// number of anchors actually applied.
+func (r *ConfigReconciler) ApplyServices(ctx context.Context, st *state.State, healthy HealthyView) ([]render.Plan, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	plans, err := render.All(st, healthy)
+	if err != nil {
+		return nil, 0, fmt.Errorf("apply services: %w", err)
+	}
+	applied := 0
+	for _, plan := range plans {
+		current, err := r.pf.AnchorsShow(ctx, AnchorName(plan.Anchor))
+		if err != nil {
+			// An anchor unknown to pf shows as empty/exit-1; load it fresh.
+			current = nil
+		}
+		if sameText(current, plan.Rules) {
+			continue
+		}
+		if err := r.loadAnchor(ctx, plan.Anchor, plan.Rules); err != nil {
+			return plans, applied, fmt.Errorf("apply service anchor %q: %w", plan.Anchor, err)
+		}
+		applied++
+	}
+	return plans, applied, nil
 }
 
 // detectLocked computes table diffs and anchor drift; caller holds r.mu.
 func (r *ConfigReconciler) detectLocked(ctx context.Context, st *state.State, healthy HealthyView) ([]pfctl.TableDiff, bool, error) {
 	var diffs []pfctl.TableDiff
 	for _, td := range st.Tables {
-		allowed := allowedMembers(td.Members, healthy[td.Name])
+		allowed := allowedMembers(state.Addrs(td.Members), healthy[td.Name])
 		current, exists, err := r.currentTable(ctx, td.Name)
 		if err != nil {
 			return nil, false, fmt.Errorf("drift table %q: %w", td.Name, err)

@@ -348,13 +348,13 @@ func (s *Store) HeadRevision(ctx context.Context) (string, error) {
 }
 
 // ConfigHash returns sha256 over the sorted (path, content) stream of
-// config.yaml, tables/*.yaml, rules/*.conf and conf/pf.conf. Absent files are
-// skipped; a path and a NUL byte precede each content block so that renames
-// and content shifts change the hash.
+// config.yaml, tables/*.yaml, services/*.yaml, rules/*.conf and
+// conf/pf.conf. Absent files are skipped; a path and a NUL byte precede each
+// content block so that renames and content shifts change the hash.
 func (s *Store) ConfigHash(ctx context.Context) (string, error) {
 	_ = ctx // hash is content-only; ctx kept for signature symmetry
 	relPaths := []string{"config.yaml", "conf/pf.conf"}
-	for _, pattern := range []string{"tables/*.yaml", "rules/*.conf"} {
+	for _, pattern := range []string{"tables/*.yaml", "services/*.yaml", "rules/*.conf"} {
 		matches, err := filepath.Glob(filepath.Join(s.Dir, pattern))
 		if err != nil {
 			return "", fmt.Errorf("store hash: %w", err)

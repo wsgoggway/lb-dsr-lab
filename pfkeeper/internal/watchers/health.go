@@ -21,6 +21,11 @@ type HealthWatcher struct {
 	Reg     *health.Registry
 	Hc      *reconcile.HealthController
 	Metrics *metrics.Metrics
+	// Rec, when set, re-renders and re-applies the service anchors after a
+	// health transition (weighted chains reference member addresses inline,
+	// so a member flip must regenerate the chain, not only the table
+	// membership).
+	Rec *reconcile.ConfigReconciler
 	// State returns the desired state (kept fresh by the git watcher).
 	State func() *state.State
 	// PeerView returns the peer's "table/addr" -> state view and whether the
@@ -75,9 +80,10 @@ func (w *HealthWatcher) Run(ctx context.Context) {
 }
 
 // tickOnce is one full iteration: probe due monitors, publish the view per
-// the startup/change/periodic rule, recompute effective membership on local
-// state change OR peer-view change. Reports whether any LOCAL member state
-// changed.
+// the startup/change/periodic rule, recompute effective membership and
+// re-render the service anchors on local state change OR peer-view change
+// (the weighted chains depend on the health view). Reports whether any LOCAL
+// member state changed.
 func (w *HealthWatcher) tickOnce(ctx context.Context, log *slog.Logger) bool {
 	changed := w.tick(ctx, log)
 	peerChanged := w.trackPeerView()
@@ -86,6 +92,7 @@ func (w *HealthWatcher) tickOnce(ctx context.Context, log *slog.Logger) bool {
 		// Re-run the consensus when the MASTER changed its mind too, not
 		// only on local state flips.
 		w.applyEffective(ctx, log)
+		w.applyServices(ctx, log)
 	}
 	return changed
 }
@@ -180,7 +187,7 @@ func (w *HealthWatcher) syncRegistry(st *state.State, log *slog.Logger) {
 		if td.Health == nil {
 			continue
 		}
-		for _, member := range td.Members {
+		for _, member := range state.Addrs(td.Members) {
 			desired[td.Name+"/"+member] = true
 			w.Reg.Register(td.Name, member, *td.Health)
 		}
@@ -213,7 +220,7 @@ func (w *HealthWatcher) applyEffective(ctx context.Context, log *slog.Logger) {
 		if len(td.Members) == 0 {
 			continue
 		}
-		res, err := w.Hc.ApplyEffective(ctx, td.Name, td.Members,
+		res, err := w.Hc.ApplyEffective(ctx, td.Name, state.Addrs(td.Members),
 			tableView(local, td.Name), tableView(peerFull, td.Name), peerReachable)
 		if err != nil {
 			log.Warn("effective apply failed", "table", td.Name, "error", err)
@@ -223,6 +230,30 @@ func (w *HealthWatcher) applyEffective(ctx context.Context, log *slog.Logger) {
 			log.Info("effective membership updated", "table", td.Name,
 				"added", res.Added, "removed", res.Removed)
 		}
+	}
+}
+
+// applyServices re-renders the service anchors against the current health
+// view and re-applies the drifted ones (Rec wired only). The rendered plans
+// are republished as the service_probability gauge; a Degraded plan (no
+// active member) is logged as a warning — its anchor is intentionally empty.
+func (w *HealthWatcher) applyServices(ctx context.Context, log *slog.Logger) {
+	if w.Rec == nil {
+		return
+	}
+	st := w.State()
+	if st == nil {
+		return
+	}
+	plans, applied, err := w.Rec.ApplyServices(ctx, st, registryHealthy(w.Reg))
+	if err != nil {
+		log.Warn("service anchor re-render failed", "error", err)
+		return
+	}
+	// publishPlans also warns on Degraded plans (no active member).
+	publishPlans(w.Metrics, plans, log)
+	if applied > 0 {
+		log.Info("service anchors re-applied after health change", "applied", applied)
 	}
 }
 

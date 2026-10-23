@@ -106,6 +106,7 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	}
 	ctl := peer.NewController(carpW, cfg.Node, cfg.Peer.Endpoint, peerCli, rec, hc, store)
 	ctl.SetLogger(logger)
+	ctl.Metrics = m
 
 	// Bind ALL listeners before any pf mutation: a second instance (stale
 	// supervisor, manual restart overlap) must die right here, at bind,
@@ -168,6 +169,7 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	pfkeeperv1.RegisterHealthServiceServer(clientGRPC, srv)
 	pfkeeperv1.RegisterStatusServiceServer(clientGRPC, srv)
 	pfkeeperv1.RegisterAdminServiceServer(clientGRPC, srv)
+	pfkeeperv1.RegisterServiceServiceServer(clientGRPC, srv)
 
 	peerGRPC := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(serverTLS)),
@@ -191,6 +193,7 @@ func run(ctx context.Context, cfg *Config, logger *slog.Logger) error {
 	healthW := &watchers.HealthWatcher{
 		Reg:     reg,
 		Hc:      hc,
+		Rec:     rec,
 		Metrics: m,
 		State:   pfState,
 		PeerView: func() (map[string]string, bool) {

@@ -17,9 +17,10 @@ var (
 )
 
 // ValidateState checks a loaded State for semantic errors: table names,
-// member addresses (IPv4 only in v1), health specs (types, ports, durations,
-// rise/fall, status matchers, jq compilation) and uniqueness of table names
-// and members. It returns the first error found.
+// member addresses (IPv4 only in v1) and weights, health specs (types,
+// ports, durations, rise/fall, status matchers, jq compilation), services
+// (names, modes, listen tuples, table references) and uniqueness of table,
+// service and member names. It returns the first error found.
 func ValidateState(st State) error {
 	seenTables := map[string]bool{}
 	for _, td := range st.Tables {
@@ -33,14 +34,17 @@ func ValidateState(st State) error {
 
 		seenMembers := map[string]bool{}
 		for _, m := range td.Members {
-			ip := net.ParseIP(strings.TrimSpace(m))
+			ip := net.ParseIP(strings.TrimSpace(m.Addr))
 			if ip == nil || ip.To4() == nil {
-				return fmt.Errorf("table %q: member %q is not a valid IPv4 address", td.Name, m)
+				return fmt.Errorf("table %q: member %q is not a valid IPv4 address", td.Name, m.Addr)
 			}
-			if seenMembers[m] {
-				return fmt.Errorf("table %q: duplicate member %q", td.Name, m)
+			if seenMembers[m.Addr] {
+				return fmt.Errorf("table %q: duplicate member %q", td.Name, m.Addr)
 			}
-			seenMembers[m] = true
+			seenMembers[m.Addr] = true
+			if m.Weight < 0 || m.Weight > 100 {
+				return fmt.Errorf("table %q: member %q weight %d must be in 0..100 (0 = drain)", td.Name, m.Addr, m.Weight)
+			}
 		}
 
 		if td.Health == nil {
@@ -50,7 +54,77 @@ func ValidateState(st State) error {
 			return fmt.Errorf("table %q health: %w", td.Name, err)
 		}
 	}
+	return validateServices(st, seenTables)
+}
+
+// ifaceNameRe matches a pf interface name (ifconfig-style, no whitespace).
+var ifaceNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
+
+// validateServices checks every service: name shape and uniqueness, mode,
+// listen tuple (iface/vip/port/proto), a resolvable table reference (which
+// must not be shadowed by a rules/*.conf anchor) and, in weighted mode, at
+// least one member with weight > 0.
+func validateServices(st State, seenTables map[string]bool) error {
+	seenServices := map[string]bool{}
+	for _, sd := range st.Services {
+		if !tableNameRe.MatchString(sd.Service) {
+			return fmt.Errorf("service %q: name must match ^[a-zA-Z][a-zA-Z0-9_-]{0,31}$", sd.Service)
+		}
+		if seenServices[sd.Service] {
+			return fmt.Errorf("duplicate service name %q", sd.Service)
+		}
+		seenServices[sd.Service] = true
+
+		switch mode := sd.EffectiveMode(); mode {
+		case ModeWeighted, ModeRoundRobin:
+		default:
+			return fmt.Errorf("service %q: mode %q must be one of %s|%s", sd.Service, sd.Mode, ModeWeighted, ModeRoundRobin)
+		}
+
+		l := sd.Listen
+		if !ifaceNameRe.MatchString(l.Iface) {
+			return fmt.Errorf("service %q: listen.iface %q is not a valid interface name", sd.Service, l.Iface)
+		}
+		if ip := net.ParseIP(strings.TrimSpace(l.VIP)); ip == nil || ip.To4() == nil {
+			return fmt.Errorf("service %q: listen.vip %q is not a valid IPv4 address", sd.Service, l.VIP)
+		}
+		if l.Port < 1 || l.Port > 65535 {
+			return fmt.Errorf("service %q: listen.port %d must be in 1..65535", sd.Service, l.Port)
+		}
+		if l.Proto != "tcp" {
+			return fmt.Errorf("service %q: listen.proto %q must be \"tcp\" in v1", sd.Service, l.Proto)
+		}
+
+		if !seenTables[sd.Table] {
+			return fmt.Errorf("service %q: table %q not found in the state", sd.Service, sd.Table)
+		}
+		if st.Anchors[sd.Service] != "" {
+			return fmt.Errorf("service %q: name collides with rules anchor %q", sd.Service, sd.Service)
+		}
+		if sd.EffectiveMode() == ModeWeighted {
+			td := tablesByName(st)[sd.Table]
+			hasActive := false
+			for _, m := range td.Members {
+				if m.Weight > 0 {
+					hasActive = true
+					break
+				}
+			}
+			if !hasActive {
+				return fmt.Errorf("service %q: weighted mode requires table %q to have at least one member with weight > 0", sd.Service, sd.Table)
+			}
+		}
+	}
 	return nil
+}
+
+// tablesByName indexes the state's tables by name.
+func tablesByName(st State) map[string]TableDef {
+	out := make(map[string]TableDef, len(st.Tables))
+	for _, td := range st.Tables {
+		out[td.Name] = td
+	}
+	return out
 }
 
 // healthTypes is the set of supported prober types in v1.

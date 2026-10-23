@@ -33,6 +33,9 @@ func TestAuthorizedMatrix(t *testing.T) {
 
 		{RoleOperator, "/pfkeeper.v1.TableService/SetTable", true},
 		{RoleOperator, "/pfkeeper.v1.TableService/ListTables", true},
+		{RoleOperator, "/pfkeeper.v1.TableService/SetMemberWeight", true},
+		{RoleOperator, "/pfkeeper.v1.ServiceService/ListServices", true},
+		{RoleOperator, "/pfkeeper.v1.ServiceService/GetService", true},
 		{RoleOperator, "/pfkeeper.v1.HealthService/ForceCheck", true},
 		{RoleOperator, "/pfkeeper.v1.AdminService/Sync", true},
 		{RoleOperator, "/pfkeeper.v1.AdminService/Rollback", false},
@@ -42,7 +45,10 @@ func TestAuthorizedMatrix(t *testing.T) {
 		{RoleViewer, "/pfkeeper.v1.TableService/ListTables", true},
 		{RoleViewer, "/pfkeeper.v1.StatusService/GetPfStats", true},
 		{RoleViewer, "/pfkeeper.v1.RuleService/Diff", true},
+		{RoleViewer, "/pfkeeper.v1.ServiceService/ListServices", true},
+		{RoleViewer, "/pfkeeper.v1.ServiceService/GetService", true},
 		{RoleViewer, "/pfkeeper.v1.TableService/SetTable", false},
+		{RoleViewer, "/pfkeeper.v1.TableService/SetMemberWeight", false},
 		{RoleViewer, "/pfkeeper.v1.HealthService/ForceCheck", false},
 		{RoleViewer, "/pfkeeper.v1.PeeringService/SyncCheck", false},
 

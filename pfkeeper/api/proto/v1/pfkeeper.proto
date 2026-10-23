@@ -32,13 +32,20 @@ message HealthSpec {
   }
 }
 
+// One table member with its traffic distribution weight (v1.1).
+message Member {
+  string addr = 1;
+  int32 weight = 2; // 0..100; 0 = drain (no weighted traffic); default 1
+}
+
 // Table desired state, as stored in the git state.
 message Table {
   string name = 1;
   bool persist = 2;
-  repeated string members = 3; // IPs
+  repeated string members = 3; // IPs (same order as members_detailed)
   string description = 4;
   HealthSpec health = 5;
+  repeated Member members_detailed = 6; // members with weights (v1.1)
 }
 
 // Member health as seen by this node (or reported by the peer).
@@ -77,10 +84,15 @@ service TableService {
   rpc ListTables(google.protobuf.Empty) returns (ListTablesResponse);
   rpc GetTable(GetTableRequest) returns (GetTableResponse);
   // SetTable replaces the desired member set in git, commits (actor = client CN)
-  // and reconciles on both nodes.
+  // and reconciles on both nodes. Members enter with the default weight 1;
+  // use SetMemberWeight to adjust weights afterwards.
   rpc SetTable(SetTableRequest) returns (SetTableResponse);
   rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
   rpc DeleteMembers(DeleteMembersRequest) returns (DeleteMembersResponse);
+  // SetMemberWeight sets the distribution weight of one member (0 = drain),
+  // commits and reconciles on both nodes; the weighted service chains are
+  // re-rendered from the new weights.
+  rpc SetMemberWeight(SetMemberWeightRequest) returns (SetMemberWeightResponse);
   // TestAddress runs `pfctl -t <table> -T test <addr>` locally.
   rpc TestAddress(TestAddressRequest) returns (TestAddressResponse);
 }
@@ -102,8 +114,58 @@ message AddMembersRequest { string table = 1; repeated string members = 2; strin
 message AddMembersResponse { string commit = 1; }
 message DeleteMembersRequest { string table = 1; repeated string members = 2; string reason = 3; }
 message DeleteMembersResponse { string commit = 1; }
+message SetMemberWeightRequest {
+  string table = 1;
+  string address = 2;
+  int32 weight = 3;  // 0..100; 0 = drain
+  string reason = 4; // free-form, goes into the git commit message
+}
+message SetMemberWeightResponse { string commit = 1; }
 message TestAddressRequest { string table = 1; string address = 2; }
 message TestAddressResponse { bool found = 1; }
+
+// ---- ServiceService (client 8443; reads, v1.1 weighted balancing) ----
+
+service ServiceService {
+  rpc ListServices(google.protobuf.Empty) returns (ListServicesResponse);
+  // GetService returns the desired service together with its rendered
+  // chain: healthy members, weights and effective probabilities.
+  rpc GetService(GetServiceRequest) returns (GetServiceResponse);
+}
+
+// ServiceDef is the desired state of one DSR service (services/<name>.yaml).
+message ServiceDef {
+  string service = 1;
+  string table = 2; // members and health come from this table
+  string mode = 3;  // "weighted" | "round-robin"
+  Listen listen = 4;
+  bool sticky = 5;  // + sticky-address (per-source affinity)
+
+  message Listen {
+    string iface = 1;
+    string vip = 2;
+    int32 port = 3;
+    string proto = 4; // "tcp" in v1
+  }
+}
+
+// ServiceMember is one rendered chain entry (weighted mode).
+message ServiceMember {
+  string addr = 1;
+  int32 weight = 2;
+  bool healthy = 3;
+  double probability = 4; // rendered share of the total traffic, percent;
+                          // 0 for round-robin mode (not expressed per-member)
+}
+
+message ListServicesResponse { repeated ServiceDef services = 1; }
+message GetServiceRequest { string name = 1; }
+message GetServiceResponse {
+  ServiceDef service = 1;
+  repeated ServiceMember members = 2; // rendered chain order (weight desc)
+  string anchor = 3;                  // rendered rules text (anchor body)
+  string revision = 4;
+}
 
 // ---- RuleService (client 8443) ----
 

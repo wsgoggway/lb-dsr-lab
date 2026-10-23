@@ -85,27 +85,31 @@ var (
 		"/pfkeeper.v1.PeeringService/RedirectWrite": true,
 	}
 	readMethods = map[string]bool{
-		"/pfkeeper.v1.TableService/ListTables":  true,
-		"/pfkeeper.v1.TableService/GetTable":    true,
-		"/pfkeeper.v1.TableService/TestAddress": true,
-		"/pfkeeper.v1.RuleService/GetAnchors":   true,
-		"/pfkeeper.v1.RuleService/Validate":     true,
-		"/pfkeeper.v1.RuleService/Diff":         true,
-		"/pfkeeper.v1.HealthService/ListHealth": true,
-		"/pfkeeper.v1.HealthService/Inspect":    true,
-		"/pfkeeper.v1.StatusService/GetPfStats": true,
-		"/pfkeeper.v1.StatusService/CarpState":  true,
-		"/pfkeeper.v1.StatusService/PeerState":  true,
-		"/pfkeeper.v1.StatusService/Version":    true,
+		"/pfkeeper.v1.TableService/ListTables":     true,
+		"/pfkeeper.v1.TableService/GetTable":       true,
+		"/pfkeeper.v1.TableService/TestAddress":    true,
+		"/pfkeeper.v1.RuleService/GetAnchors":      true,
+		"/pfkeeper.v1.RuleService/Validate":        true,
+		"/pfkeeper.v1.RuleService/Diff":            true,
+		"/pfkeeper.v1.HealthService/ListHealth":    true,
+		"/pfkeeper.v1.HealthService/Inspect":       true,
+		"/pfkeeper.v1.StatusService/GetPfStats":    true,
+		"/pfkeeper.v1.StatusService/CarpState":     true,
+		"/pfkeeper.v1.StatusService/PeerState":     true,
+		"/pfkeeper.v1.StatusService/Version":       true,
+		"/pfkeeper.v1.ServiceService/ListServices": true,
+		"/pfkeeper.v1.ServiceService/GetService":   true,
 	}
 	// operatorMutations are the mutation methods an operator may call:
-	// Table mutations, HealthService/ForceCheck and AdminService/Sync.
+	// Table mutations (incl. SetMemberWeight), HealthService/ForceCheck and
+	// AdminService/Sync.
 	operatorMutations = map[string]bool{
-		"/pfkeeper.v1.TableService/SetTable":      true,
-		"/pfkeeper.v1.TableService/AddMembers":    true,
-		"/pfkeeper.v1.TableService/DeleteMembers": true,
-		"/pfkeeper.v1.HealthService/ForceCheck":   true,
-		"/pfkeeper.v1.AdminService/Sync":          true,
+		"/pfkeeper.v1.TableService/SetTable":        true,
+		"/pfkeeper.v1.TableService/AddMembers":      true,
+		"/pfkeeper.v1.TableService/DeleteMembers":   true,
+		"/pfkeeper.v1.TableService/SetMemberWeight": true,
+		"/pfkeeper.v1.HealthService/ForceCheck":     true,
+		"/pfkeeper.v1.AdminService/Sync":            true,
 	}
 	// adminOnlyMutations require the admin role.
 	adminOnlyMutations = map[string]bool{

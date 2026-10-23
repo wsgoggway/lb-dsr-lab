@@ -113,6 +113,9 @@ func (r *Registry) View() map[string]string {
 // so the config layer never fights the health layer on startup (only an
 // explicit DOWN/INACTIVE-vs-UP decision inside a present key excludes a
 // member).
+//
+// HealthyStrict (below) is the v1.1 rendering-grade filter; prefer it for
+// anything that derives live rules from health.
 func (r *Registry) Healthy() map[string]map[string]bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -128,6 +131,30 @@ func (r *Registry) Healthy() map[string]map[string]bool {
 	}
 	if len(out) == 0 {
 		return nil // no UP members anywhere: no opinion, config mode
+	}
+	return out
+}
+
+// HealthyStrict is the rendering-grade health filter (v1.1): table -> set of
+// addresses NOT known DOWN (UP or not yet probed). Unlike Healthy, a table
+// with monitors always gets a key — an all-DOWN table yields an EMPTY set,
+// so the weighted renderer can degrade the chain (empty anchor) instead of
+// mistaking a total outage for "no health opinion" and rendering the full
+// weights onto dead members. Tables without monitors get no key (no
+// opinion: everyone healthy). Unmonitored members inside a monitored table
+// are absent from the set (no opinion per member), matching how the health
+// layer treats them in the effective table membership.
+func (r *Registry) HealthyStrict() map[string]map[string]bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := map[string]map[string]bool{}
+	for _, m := range r.monitors {
+		if out[m.Table] == nil {
+			out[m.Table] = map[string]bool{}
+		}
+		if m.State() != StateDOWN {
+			out[m.Table][m.Address] = true
+		}
 	}
 	return out
 }

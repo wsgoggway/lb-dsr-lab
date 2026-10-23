@@ -42,6 +42,7 @@ type Server struct {
 	pfkeeperv1.UnimplementedHealthServiceServer
 	pfkeeperv1.UnimplementedStatusServiceServer
 	pfkeeperv1.UnimplementedAdminServiceServer
+	pfkeeperv1.UnimplementedServiceServiceServer
 	pfkeeperv1.UnimplementedPeeringServiceServer
 }
 
@@ -94,13 +95,14 @@ func (s *Server) audit(actorCN, method string, params map[string]string, outcome
 	Audit(s.auditL, actorCN, method, params, outcome)
 }
 
-// healthyMap converts the monitor registry into the config-layer filter
-// (table -> UP addresses); nil registry = config mode (everyone healthy).
+// healthyMap converts the monitor registry into the health filter for
+// reconcile and rendering (table -> addresses not known DOWN, see
+// Registry.HealthyStrict); nil registry = config mode (everyone healthy).
 func (s *Server) healthyMap() reconcile.HealthyView {
 	if s.reg == nil {
 		return nil
 	}
-	return s.reg.Healthy()
+	return s.reg.HealthyStrict()
 }
 
 // loadState reads the current desired state from the store working tree.

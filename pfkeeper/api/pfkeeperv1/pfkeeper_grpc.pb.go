@@ -27,12 +27,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TableService_ListTables_FullMethodName    = "/pfkeeper.v1.TableService/ListTables"
-	TableService_GetTable_FullMethodName      = "/pfkeeper.v1.TableService/GetTable"
-	TableService_SetTable_FullMethodName      = "/pfkeeper.v1.TableService/SetTable"
-	TableService_AddMembers_FullMethodName    = "/pfkeeper.v1.TableService/AddMembers"
-	TableService_DeleteMembers_FullMethodName = "/pfkeeper.v1.TableService/DeleteMembers"
-	TableService_TestAddress_FullMethodName   = "/pfkeeper.v1.TableService/TestAddress"
+	TableService_ListTables_FullMethodName      = "/pfkeeper.v1.TableService/ListTables"
+	TableService_GetTable_FullMethodName        = "/pfkeeper.v1.TableService/GetTable"
+	TableService_SetTable_FullMethodName        = "/pfkeeper.v1.TableService/SetTable"
+	TableService_AddMembers_FullMethodName      = "/pfkeeper.v1.TableService/AddMembers"
+	TableService_DeleteMembers_FullMethodName   = "/pfkeeper.v1.TableService/DeleteMembers"
+	TableService_SetMemberWeight_FullMethodName = "/pfkeeper.v1.TableService/SetMemberWeight"
+	TableService_TestAddress_FullMethodName     = "/pfkeeper.v1.TableService/TestAddress"
 )
 
 // TableServiceClient is the client API for TableService service.
@@ -42,10 +43,15 @@ type TableServiceClient interface {
 	ListTables(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListTablesResponse, error)
 	GetTable(ctx context.Context, in *GetTableRequest, opts ...grpc.CallOption) (*GetTableResponse, error)
 	// SetTable replaces the desired member set in git, commits (actor = client CN)
-	// and reconciles on both nodes.
+	// and reconciles on both nodes. Members enter with the default weight 1;
+	// use SetMemberWeight to adjust weights afterwards.
 	SetTable(ctx context.Context, in *SetTableRequest, opts ...grpc.CallOption) (*SetTableResponse, error)
 	AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error)
 	DeleteMembers(ctx context.Context, in *DeleteMembersRequest, opts ...grpc.CallOption) (*DeleteMembersResponse, error)
+	// SetMemberWeight sets the distribution weight of one member (0 = drain),
+	// commits and reconciles on both nodes; the weighted service chains are
+	// re-rendered from the new weights.
+	SetMemberWeight(ctx context.Context, in *SetMemberWeightRequest, opts ...grpc.CallOption) (*SetMemberWeightResponse, error)
 	// TestAddress runs `pfctl -t <table> -T test <addr>` locally.
 	TestAddress(ctx context.Context, in *TestAddressRequest, opts ...grpc.CallOption) (*TestAddressResponse, error)
 }
@@ -108,6 +114,16 @@ func (c *tableServiceClient) DeleteMembers(ctx context.Context, in *DeleteMember
 	return out, nil
 }
 
+func (c *tableServiceClient) SetMemberWeight(ctx context.Context, in *SetMemberWeightRequest, opts ...grpc.CallOption) (*SetMemberWeightResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetMemberWeightResponse)
+	err := c.cc.Invoke(ctx, TableService_SetMemberWeight_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *tableServiceClient) TestAddress(ctx context.Context, in *TestAddressRequest, opts ...grpc.CallOption) (*TestAddressResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TestAddressResponse)
@@ -125,10 +141,15 @@ type TableServiceServer interface {
 	ListTables(context.Context, *emptypb.Empty) (*ListTablesResponse, error)
 	GetTable(context.Context, *GetTableRequest) (*GetTableResponse, error)
 	// SetTable replaces the desired member set in git, commits (actor = client CN)
-	// and reconciles on both nodes.
+	// and reconciles on both nodes. Members enter with the default weight 1;
+	// use SetMemberWeight to adjust weights afterwards.
 	SetTable(context.Context, *SetTableRequest) (*SetTableResponse, error)
 	AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error)
 	DeleteMembers(context.Context, *DeleteMembersRequest) (*DeleteMembersResponse, error)
+	// SetMemberWeight sets the distribution weight of one member (0 = drain),
+	// commits and reconciles on both nodes; the weighted service chains are
+	// re-rendered from the new weights.
+	SetMemberWeight(context.Context, *SetMemberWeightRequest) (*SetMemberWeightResponse, error)
 	// TestAddress runs `pfctl -t <table> -T test <addr>` locally.
 	TestAddress(context.Context, *TestAddressRequest) (*TestAddressResponse, error)
 	mustEmbedUnimplementedTableServiceServer()
@@ -155,6 +176,9 @@ func (UnimplementedTableServiceServer) AddMembers(context.Context, *AddMembersRe
 }
 func (UnimplementedTableServiceServer) DeleteMembers(context.Context, *DeleteMembersRequest) (*DeleteMembersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteMembers not implemented")
+}
+func (UnimplementedTableServiceServer) SetMemberWeight(context.Context, *SetMemberWeightRequest) (*SetMemberWeightResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetMemberWeight not implemented")
 }
 func (UnimplementedTableServiceServer) TestAddress(context.Context, *TestAddressRequest) (*TestAddressResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TestAddress not implemented")
@@ -270,6 +294,24 @@ func _TableService_DeleteMembers_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TableService_SetMemberWeight_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetMemberWeightRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TableServiceServer).SetMemberWeight(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TableService_SetMemberWeight_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TableServiceServer).SetMemberWeight(ctx, req.(*SetMemberWeightRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TableService_TestAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestAddressRequest)
 	if err := dec(in); err != nil {
@@ -316,8 +358,156 @@ var TableService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TableService_DeleteMembers_Handler,
 		},
 		{
+			MethodName: "SetMemberWeight",
+			Handler:    _TableService_SetMemberWeight_Handler,
+		},
+		{
 			MethodName: "TestAddress",
 			Handler:    _TableService_TestAddress_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/v1/pfkeeper.proto",
+}
+
+const (
+	ServiceService_ListServices_FullMethodName = "/pfkeeper.v1.ServiceService/ListServices"
+	ServiceService_GetService_FullMethodName   = "/pfkeeper.v1.ServiceService/GetService"
+)
+
+// ServiceServiceClient is the client API for ServiceService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ServiceServiceClient interface {
+	ListServices(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListServicesResponse, error)
+	// GetService returns the desired service together with its rendered
+	// chain: healthy members, weights and effective probabilities.
+	GetService(ctx context.Context, in *GetServiceRequest, opts ...grpc.CallOption) (*GetServiceResponse, error)
+}
+
+type serviceServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewServiceServiceClient(cc grpc.ClientConnInterface) ServiceServiceClient {
+	return &serviceServiceClient{cc}
+}
+
+func (c *serviceServiceClient) ListServices(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListServicesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListServicesResponse)
+	err := c.cc.Invoke(ctx, ServiceService_ListServices_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serviceServiceClient) GetService(ctx context.Context, in *GetServiceRequest, opts ...grpc.CallOption) (*GetServiceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServiceResponse)
+	err := c.cc.Invoke(ctx, ServiceService_GetService_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ServiceServiceServer is the server API for ServiceService service.
+// All implementations must embed UnimplementedServiceServiceServer
+// for forward compatibility.
+type ServiceServiceServer interface {
+	ListServices(context.Context, *emptypb.Empty) (*ListServicesResponse, error)
+	// GetService returns the desired service together with its rendered
+	// chain: healthy members, weights and effective probabilities.
+	GetService(context.Context, *GetServiceRequest) (*GetServiceResponse, error)
+	mustEmbedUnimplementedServiceServiceServer()
+}
+
+// UnimplementedServiceServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedServiceServiceServer struct{}
+
+func (UnimplementedServiceServiceServer) ListServices(context.Context, *emptypb.Empty) (*ListServicesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListServices not implemented")
+}
+func (UnimplementedServiceServiceServer) GetService(context.Context, *GetServiceRequest) (*GetServiceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetService not implemented")
+}
+func (UnimplementedServiceServiceServer) mustEmbedUnimplementedServiceServiceServer() {}
+func (UnimplementedServiceServiceServer) testEmbeddedByValue()                        {}
+
+// UnsafeServiceServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ServiceServiceServer will
+// result in compilation errors.
+type UnsafeServiceServiceServer interface {
+	mustEmbedUnimplementedServiceServiceServer()
+}
+
+func RegisterServiceServiceServer(s grpc.ServiceRegistrar, srv ServiceServiceServer) {
+	// If the following call panics, it indicates UnimplementedServiceServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ServiceService_ServiceDesc, srv)
+}
+
+func _ServiceService_ListServices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServiceServer).ListServices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServiceService_ListServices_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServiceServer).ListServices(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServiceService_GetService_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServiceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServiceServer).GetService(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServiceService_GetService_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServiceServer).GetService(ctx, req.(*GetServiceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ServiceService_ServiceDesc is the grpc.ServiceDesc for ServiceService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ServiceService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "pfkeeper.v1.ServiceService",
+	HandlerType: (*ServiceServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListServices",
+			Handler:    _ServiceService_ListServices_Handler,
+		},
+		{
+			MethodName: "GetService",
+			Handler:    _ServiceService_GetService_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
