@@ -228,6 +228,10 @@ freebsd/amd64 + установка по SSH; для реального желе�
 | t10 mTLS + RBAC | без серта отказ; viewer read-only; node — только peering — PASS |
 | t11 L7-глубина | HTTP 200 с телом, не прошедшим jq → member DOWN (jq_false); `health inspect` показывает тело, код и вывод jq — PASS |
 | t12 peer-синхронизация | запись через BACKUP конвергентна на MASTER; diverged=false — PASS |
+| t13 веса + смена на лету | 5:3 → 621/379 (цель 625/375); 7:1 → 869/131 — PASS |
+| t14 health ∩ weight | дренаж rs1 → 100% rs2, якоря пары идентичны; возврат — PASS |
+| t15 sticky в weighted | аффинности нет (probability до sticky-lookup) — задокументировано как ограничение v1.1 |
+| t16 peer + веса | redirect через BACKUP, heal дрифта ≤45 с, peer_reachable=1 на паре — PASS |
 | Security-ревью | deployable as a lab; 4×P2 + 8×P3 задокументированы с фиксами |
 
 Полные результаты и методики: `reports/2026-10-23-pfkeeper-testing-report.md`,
@@ -235,8 +239,11 @@ freebsd/amd64 + установка по SSH; для реального желе�
 
 ## Взвешенное распределение трафика
 
-Как получить веса на L3/L4 чистым pf (pf-таблицы весов не имеют), живой PoC с замерами
-и план интеграции в pfkeeper v1.1: **[docs/weighted-balancing.md](docs/weighted-balancing.md)**.
+Веса на L3/L4 чистым pf (pf-таблицы весов не имеют): механизм probability-цепочек,
+PoC-замеры, схема стейта и известные дефекты — **[docs/weighted-balancing.md](docs/weighted-balancing.md)**.
+Реализовано в pfkeeper v1.1: `pfk weight set <table> <addr> <weight>`, `pfk service ls|show`,
+метрика `pfkeeper_service_probability`; правило DSR на стенде рендерится pfkeeper-якорем
+из стейта (в pf.conf — `anchor "pfkeeper/*"`).
 
 ## Развёртывание на реальном железе
 
