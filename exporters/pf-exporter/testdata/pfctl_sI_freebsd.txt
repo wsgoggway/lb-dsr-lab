@@ -1,0 +1,7 @@
+all
+lo
+lo0 (skip)
+pfsync
+pfsync0
+vtnet0
+vtnet1

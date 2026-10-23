@@ -1,0 +1,49 @@
+#!/bin/sh
+# pf_exporter rc.d script - FreeBSD 14, daemon(8)-supervised Go binary
+# (modeled on pfkeeper/rc.d/pfkeeper: double pidfile, child + supervisor).
+# Install: install -m 555 freebsd/rc.d/pf_exporter /etc/rc.d/pf_exporter
+#          sysrc pf_exporter_enable=YES
+# NOTE: runs as root by design - pfctl -si/-sI/-sT needs /dev/pf, which has
+#       no unprivileged access on FreeBSD.
+
+. /etc/rc.subr
+
+name=pf_exporter
+rcvar=pf_exporter_enable
+
+command="/usr/sbin/daemon"
+procname="/usr/local/bin/pf_exporter"
+pidfile="/var/run/pf_exporter.pid"               # child (Go process)
+daemon_pidfile="/var/run/pf_exporter-daemon.pid" # daemon(8) supervisor
+
+load_rc_config $name
+
+: ${pf_exporter_enable:="NO"}
+# Conventional :9100 belongs to pfkeeper on the lab balancers.
+: ${pf_exporter_args:="--web.listen-address=0.0.0.0:9102"}
+: ${pf_exporter_log:="/var/log/pf_exporter.log"}
+
+command_args="-r -f -P ${daemon_pidfile} -p ${pidfile} -o ${pf_exporter_log} \
+  ${procname} ${pf_exporter_args}"
+
+pf_exporter_stop() {
+  # daemon(8) -r respawns the child instantly: kill the supervisor first.
+  if [ -f "$daemon_pidfile" ]; then kill "$(cat $daemon_pidfile)" 2>/dev/null; fi
+  if [ -f "$pidfile" ]; then kill "$(cat $pidfile)" 2>/dev/null; fi
+  # Orphaned supervisors: a repeated start overwrites the daemon pidfile,
+  # leaving the previous daemon(8) unkillable via pidfiles. Sweep by
+  # command line so no second instance survives to fight the new one over
+  # the listener port.
+  pkill -TERM -f "daemon: ${procname}" 2>/dev/null
+  pkill -TERM -f "^${procname} " 2>/dev/null
+  sleep 1
+  pkill -KILL -f "daemon: ${procname}" 2>/dev/null
+  pkill -KILL -f "^${procname} " 2>/dev/null
+  wait_for_pids $(
+    [ -f "$daemon_pidfile" ] && cat $daemon_pidfile
+    [ -f "$pidfile" ] && cat $pidfile
+  ) 2>/dev/null
+  rm -f "$daemon_pidfile" "$pidfile"
+}
+
+run_rc_command "$1"

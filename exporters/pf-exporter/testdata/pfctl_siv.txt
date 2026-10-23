@@ -1,0 +1,77 @@
+all
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  0                 
+	In4/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+lo
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  0                 
+	In4/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+lo0 (skip)
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  0                 
+	In4/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+pfsync
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  0                 
+	In4/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+pfsync0
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  0                 
+	In4/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 0                  Bytes: 0                  ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+vtnet0
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  12                
+	In4/Pass:    [ Packets: 535165             Bytes: 438577817          ]
+	In4/Block:   [ Packets: 4                  Bytes: 160                ]
+	Out4/Pass:   [ Packets: 555143             Bytes: 62065313           ]
+	Out4/Block:  [ Packets: 9                  Bytes: 1179               ]
+	In6/Pass:    [ Packets: 313                Bytes: 29807              ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]
+vtnet1
+	Cleared:     Thu Oct 22 09:50:04 2026
+	References:  6                 
+	In4/Pass:    [ Packets: 143112             Bytes: 30550534           ]
+	In4/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out4/Pass:   [ Packets: 194498             Bytes: 38293657           ]
+	Out4/Block:  [ Packets: 0                  Bytes: 0                  ]
+	In6/Pass:    [ Packets: 205                Bytes: 23759              ]
+	In6/Block:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Pass:   [ Packets: 0                  Bytes: 0                  ]
+	Out6/Block:  [ Packets: 0                  Bytes: 0                  ]

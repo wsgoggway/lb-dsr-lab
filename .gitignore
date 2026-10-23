@@ -4,3 +4,4 @@
 pfkeeper/bin/
 pfkeeper/certs/
 *.csr
+exporters/pf-exporter/bin/
