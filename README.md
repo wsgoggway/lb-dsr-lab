@@ -207,3 +207,34 @@ GENERIC kernel - they are loaded by cloud-init (`kldload`) and persisted via
 - [2026-10-22 — полный отчёт по фазам 1–2](reports/2026-10-22-full-report-phases-1-2.md) — архитектура, CARP+pfsync, отказоустойчивость.
 - [2026-10-22 — пакетные доказательства](reports/2026-10-22-packet-capture-evidence.md) — аннотированные tcpdump-дампы DSR/NAT, pf-стейты.
 - [2026-10-22 — отчёт об испытаниях](reports/2026-10-22-test-report-phases-1-2.md) — методика, матрица t00–t07, метрики, дефекты.
+
+## pfkeeper — сервис управления (production-ready компонент)
+
+`pfkeeper/` — Go control plane на каждом балансировщике: желаемое состояние
+(таблицы, якорные правила, основной pf.conf) в git, применение через pfctl,
+health-чеки бэкендов (http/tcp/icmp + **gojq по телу ответа**), peer-синхронизация
+CARP-пары (single-writer = CARP MASTER, divergence guard, degraded-режимы),
+gRPC + mTLS (RBAC: admin/operator/viewer/node), Prometheus-метрики, slog JSON,
+rc.d. CLI `pfk`. Развёртывание: `bash pfkeeper/deploy/deploy.sh` (сборка
+freebsd/amd64 + установка по SSH; для реального железа — `PFK_NODES`/`PFK_KEY`).
+
+### Тестирование pfkeeper (2026-10-22…23)
+
+| Уровень | Результат |
+|---|---|
+| Unit (8 пакетов, go test -race) | 57 PASS, 0 FAIL |
+| t08 health-failover бэкенда | стоп nginx → member удалён из таблиц ОБОИХ узлов, трафик 100% на живой; возврат при восстановлении — PASS |
+| t09 drift detect + heal | ручной pfctl не выживает: diff ловит, sync сходится — PASS |
+| t10 mTLS + RBAC | без серта отказ; viewer read-only; node — только peering — PASS |
+| t11 L7-глубина | HTTP 200 с телом, не прошедшим jq → member DOWN (jq_false); `health inspect` показывает тело, код и вывод jq — PASS |
+| t12 peer-синхронизация | запись через BACKUP конвергентна на MASTER; diverged=false — PASS |
+| Security-ревью | deployable as a lab; 4×P2 + 8×P3 задокументированы с фиксами |
+
+Полные результаты и методики: `reports/2026-10-23-pfkeeper-testing-report.md`,
+`reports/2026-10-22-security-review-pfkeeper.md`.
+
+## Развёртывание на реальном железе
+
+Пошаговый мануал (топология, FreeBSD, CARP/pfsync на физических NIC и коммутаторах,
+Linux-бэкенды, pfkeeper, продакшен-безопасность, типовые проблемы):
+**[docs/real-hardware-guide.md](docs/real-hardware-guide.md)**.

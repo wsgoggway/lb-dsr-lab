@@ -5,8 +5,10 @@ set -euo pipefail
 LAB_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"   # lb-dsr-lab repo root
 PFK="$LAB_ROOT/pfkeeper"
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes)
-KEY="$HOME/.local/share/lb-dsr-lab/ssh/id_ed25519"
-NODES=(192.168.100.11 192.168.100.12)
+KEY="${PFK_KEY:-$HOME/.local/share/lb-dsr-lab/ssh/id_ed25519}"
+# Target nodes and SSH key are overridable for real hardware:
+#   PFK_NODES="10.0.100.1 10.0.100.2" PFK_KEY=~/.ssh/prod_key bash deploy.sh
+NODES=(${PFK_NODES:-192.168.100.11 192.168.100.12})
 
 echo "== building freebsd/amd64"
 make -C "$PFK" build-freebsd
