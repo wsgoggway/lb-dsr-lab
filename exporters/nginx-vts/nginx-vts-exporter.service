@@ -1,0 +1,18 @@
+[Unit]
+Description=Prometheus nginx-vts-exporter (scrapes nginx-module-vts JSON status)
+Documentation=https://github.com/sysulq/nginx-vts-exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nginx-vts-exporter -metrics.namespace=nginx_vts -nginx.scrape_uri=http://127.0.0.1:8081/status/format/json -telemetry.address=:9913
+Restart=on-failure
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
