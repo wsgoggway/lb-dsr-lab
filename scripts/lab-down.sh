@@ -8,7 +8,9 @@ source "$(dirname "$0")/lab-env.sh"
 MODE=${1:-}
 need_virsh
 
-vm_running() { "${VIRSH[@]}" domstate "$1" 2>/dev/null | grep -q running; }
+# LC_ALL=C: virsh localizes domstate ("работает" on ru_RU) - match only the
+# untranslated form, otherwise every VM looks already-off and nothing stops.
+vm_running() { LC_ALL=C "${VIRSH[@]}" domstate "$1" 2>/dev/null | grep -q '^running'; }
 
 for vm in "${VM_NAMES[@]}"; do
   "${VIRSH[@]}" dominfo "$vm" >/dev/null 2>&1 || continue
